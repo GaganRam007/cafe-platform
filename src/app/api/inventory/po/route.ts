@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/data-store";
+import { DB } from "@/lib/db";
+import { RealtimeBus } from "@/lib/realtime";
+import { verifyStaffSession } from "@/lib/auth";
 
 export async function POST(req: Request) {
   try {
+    const auth = await verifyStaffSession(["admin", "manager"]);
+    if (!auth.authorized || !auth.session) {
+      return NextResponse.json(
+        { error: auth.error || "Unauthorized: admin or manager role required" },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
     const { vendor_id, items } = body;
 
@@ -10,12 +20,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid vendor or empty items list" }, { status: 400 });
     }
 
-    const store = getStore();
-    const po = store.createPurchaseOrder(vendor_id, items);
+    const po = DB.createPurchaseOrder(vendor_id, items);
 
     if (!po) {
       return NextResponse.json({ error: "Failed to generate PO: vendor not found" }, { status: 404 });
     }
+
+    RealtimeBus.broadcast("PO_CREATED", { purchase_order: po });
 
     return NextResponse.json({ purchase_order: po }, { status: 201 });
   } catch (err) {

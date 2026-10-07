@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/data-store";
+import { DB } from "@/lib/db";
+import { RealtimeBus } from "@/lib/realtime";
 
 export async function POST(
   request: Request,
@@ -8,13 +9,15 @@ export async function POST(
   const { tableId } = await props.params;
   try {
     const body = await request.json();
-    const store = getStore();
 
-    // Table id can be "tbl-2" or "2"
-    let tableNum = Number(tableId.replace("tbl-", ""));
+    // Check if tableId is an ID, a token, or table number
+    const table = DB.getTableById(tableId) || DB.getTableByQrToken(tableId);
+    let tableNum = table ? table.table_number : Number(tableId.replace("tbl-", ""));
     if (isNaN(tableNum)) tableNum = 1;
 
-    const req = store.createServiceRequest(tableNum, body.type || "call_server", body.message);
+    const req = DB.createServiceRequest(tableNum, body.type || "call_server", body.message);
+    RealtimeBus.broadcast("SERVICE_REQUEST_CREATED", { request: req });
+
     return NextResponse.json({ request: req }, { status: 201 });
   } catch (err) {
     console.error("Service request error", err);

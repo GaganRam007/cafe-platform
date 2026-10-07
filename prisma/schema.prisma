@@ -1,0 +1,331 @@
+// Prisma Schema for Aura Cafe POS & QR Ordering System
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // Can be switched to postgresql by setting DATABASE_URL
+  url      = env("DATABASE_URL")
+}
+
+enum TableStatus {
+  VACANT
+  SEATED
+  ACTIVE_ORDER
+  BILLING
+}
+
+enum SessionStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum OrderStatus {
+  DRAFT
+  SENT
+  PREPARING
+  READY
+  SERVED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderItemStatus {
+  PENDING
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  CASH_PENDING
+  FAILED
+}
+
+enum StaffRole {
+  ADMIN
+  MANAGER
+  CASHIER
+  KITCHEN
+  WAITSTAFF
+}
+
+model Cafe {
+  id               String   @id @default(cuid())
+  name             String
+  tagline          String
+  slug             String   @unique
+  address          String
+  phone            String
+  gstin            String   @default("29AABCU9603R1ZM")
+  fssai_number     String   @default("11223344556677")
+  wifi_ssid        String   @default("Aura_Guest_5G")
+  wifi_pass        String   @default("VelvetLatte24")
+  cgst_rate        Float    @default(0.025) // 2.5% CGST
+  sgst_rate        Float    @default(0.025) // 2.5% SGST
+  service_fee_rate Float    @default(0.05)  // 5% optional service charge
+  currency         String   @default("INR")
+  currency_symbol  String   @default("₹")
+  created_at       DateTime @default(now())
+}
+
+model Table {
+  id              String         @id @default(cuid())
+  cafe_id         String
+  table_number    Int            @unique
+  label           String
+  capacity        Int
+  zone            String         // Main Dining, Patio Garden, Window Bar
+  qr_token        String         @unique
+  status          TableStatus    @default(VACANT)
+  position_x      Float          @default(10)
+  position_y      Float          @default(10)
+  merged_with     String?        // Comma-separated merged table numbers
+  updated_at      DateTime       @updatedAt
+  sessions        TableSession[]
+}
+
+model Customer {
+  id               String         @id @default(cuid())
+  phone_e164       String         @unique
+  name             String
+  marketing_opt_in Boolean        @default(false)
+  created_at       DateTime       @default(now())
+  diners           Diner[]
+  orders           Order[]
+}
+
+model TableSession {
+  id         String        @id @default(cuid())
+  table_id   String
+  opened_at  DateTime      @default(now())
+  closed_at  DateTime?
+  status     SessionStatus @default(ACTIVE)
+  table      Table         @relation(fields: [table_id], references: [id])
+  diners     Diner[]
+  orders     Order[]
+}
+
+model Diner {
+  id               String       @id @default(cuid())
+  table_session_id String
+  customer_id      String
+  table_session    TableSession @relation(fields: [table_session_id], references: [id])
+  customer         Customer     @relation(fields: [customer_id], references: [id])
+  order_items      OrderItem[]
+}
+
+model MenuCategory {
+  id         String     @id @default(cuid())
+  cafe_id    String
+  name       String
+  slug       String     @unique
+  icon       String
+  sort_order Int        @default(0)
+  items      MenuItem[]
+}
+
+model MenuItem {
+  id                 String          @id @default(cuid())
+  cafe_id            String
+  category_id        String
+  name               String
+  description        String
+  image_url          String
+  base_price         Float
+  is_available       Boolean         @default(true)
+  stock_count        Int             @default(50)
+  dietary_tags       String          // Comma-separated: veg, vegan, gluten-free, non-veg
+  station            String          // barista, kitchen
+  prep_time_minutes  Int             @default(5)
+  calories           Int?
+  category           MenuCategory    @relation(fields: [category_id], references: [id])
+  modifier_groups    ModifierGroup[]
+  recipe_items       RecipeItem[]
+  order_items        OrderItem[]
+}
+
+model ModifierGroup {
+  id             String           @id @default(cuid())
+  menu_item_id   String
+  name           String
+  selection_type String           // single, multiple
+  is_required    Boolean          @default(false)
+  menu_item      MenuItem         @relation(fields: [menu_item_id], references: [id])
+  options        ModifierOption[]
+}
+
+model ModifierOption {
+  id                  String               @id @default(cuid())
+  group_id            String
+  name                String
+  price_delta         Float                @default(0)
+  is_default          Boolean              @default(false)
+  group               ModifierGroup        @relation(fields: [group_id], references: [id])
+  ingredient_deltas   ModifierIngredient[]
+}
+
+model Ingredient {
+  id                  String               @id @default(cuid())
+  cafe_id             String
+  name                String
+  category            String
+  unit                String               // g, ml, pcs
+  current_stock       Float
+  reorder_level       Float
+  unit_cost           Float
+  vendor_id           String?
+  recipes             RecipeItem[]
+  modifier_deltas     ModifierIngredient[]
+}
+
+model RecipeItem {
+  id                String     @id @default(cuid())
+  menu_item_id      String
+  ingredient_id     String
+  quantity_required Float
+  unit              String
+  menu_item         MenuItem   @relation(fields: [menu_item_id], references: [id])
+  ingredient        Ingredient @relation(fields: [ingredient_id], references: [id])
+}
+
+model ModifierIngredient {
+  id                 String         @id @default(cuid())
+  modifier_option_id String
+  ingredient_id      String
+  quantity_delta     Float          // e.g. +200ml for oat milk, or -200ml for whole milk
+  unit               String
+  option             ModifierOption @relation(fields: [modifier_option_id], references: [id])
+  ingredient         Ingredient     @relation(fields: [ingredient_id], references: [id])
+}
+
+model Order {
+  id                   String        @id @default(cuid())
+  order_number         String        @unique // e.g. ORD-20261006-0001
+  table_session_id     String
+  table_id             String
+  customer_id          String?
+  status               OrderStatus   @default(SENT)
+  subtotal             Float
+  cgst_amount          Float
+  sgst_amount          Float
+  total_tax            Float
+  service_fee          Float         @default(0)
+  tip_amount           Float         @default(0)
+  total_amount         Float
+  payment_status       PaymentStatus @default(PENDING)
+  payment_method       String?       // razorpay, cash, upi
+  razorpay_order_id    String?
+  razorpay_payment_id  String?
+  created_at           DateTime      @default(now())
+  updated_at           DateTime      @updatedAt
+  table_session        TableSession  @relation(fields: [table_session_id], references: [id])
+  customer             Customer?     @relation(fields: [customer_id], references: [id])
+  items                OrderItem[]
+  invoice              Invoice?
+}
+
+model OrderItem {
+  id                 String             @id @default(cuid())
+  order_id           String
+  diner_id           String?
+  menu_item_id       String
+  item_name          String
+  station            String
+  quantity           Int
+  unit_price         Float
+  notes              String?
+  status             OrderItemStatus    @default(PENDING)
+  created_at         DateTime           @default(now())
+  order              Order              @relation(fields: [order_id], references: [id])
+  diner              Diner?             @relation(fields: [diner_id], references: [id])
+  menu_item          MenuItem           @relation(fields: [menu_item_id], references: [id])
+  selected_modifiers OrderItemModifier[]
+}
+
+model OrderItemModifier {
+  id                 String    @id @default(cuid())
+  order_item_id      String
+  modifier_option_id String
+  group_name         String
+  option_name        String
+  price_delta        Float
+  order_item         OrderItem @relation(fields: [order_item_id], references: [id])
+}
+
+model Invoice {
+  id               String   @id @default(cuid())
+  invoice_number   String   @unique // e.g. INV-20261006-0001
+  order_id         String   @unique
+  customer_name    String
+  customer_phone   String
+  gstin            String
+  fssai_number     String
+  hsn_sac_code     String   @default("996331")
+  subtotal         Float
+  cgst_amount      Float
+  sgst_amount      Float
+  service_fee      Float
+  tip_amount       Float
+  total_amount     Float
+  whatsapp_status  String   @default("QUEUED") // QUEUED, SENT, FAILED
+  created_at       DateTime @default(now())
+  order            Order    @relation(fields: [order_id], references: [id])
+}
+
+model ServiceRequest {
+  id           String   @id @default(cuid())
+  table_id     String
+  table_number Int
+  type         String   // call_server, water, bill, clean
+  message      String?
+  status       String   @default("pending") // pending, resolved
+  created_at   DateTime @default(now())
+}
+
+model WastageLog {
+  id              String   @id @default(cuid())
+  ingredient_id   String
+  ingredient_name String
+  quantity        Float
+  unit            String
+  cost            Float
+  reason          String
+  logged_by       String
+  logged_at       DateTime @default(now())
+}
+
+model Vendor {
+  id              String          @id @default(cuid())
+  name            String
+  contact_person  String
+  phone           String
+  email           String
+  category        String
+  lead_time_days  Int
+  purchase_orders PurchaseOrder[]
+}
+
+model PurchaseOrder {
+  id                String   @id @default(cuid())
+  vendor_id         String
+  po_number         String   @unique
+  items_json        String   // Serialized purchase order items
+  total_cost        Float
+  status            String   @default("SUBMITTED")
+  expected_delivery String?
+  created_at        DateTime @default(now())
+  vendor            Vendor   @relation(fields: [vendor_id], references: [id])
+}
+
+model OtpVerification {
+  id         String   @id @default(cuid())
+  phone      String   @unique
+  code       String
+  expires_at DateTime
+  attempts   Int      @default(0)
+  created_at DateTime @default(now())
+}

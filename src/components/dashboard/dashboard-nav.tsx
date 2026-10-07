@@ -4,27 +4,31 @@ import React, { useState } from "react";
 import Link from "next/link";
 import {
   Coffee,
+  Layers,
+  ChefHat,
+  TrendingUp,
+  Package,
   Bell,
-  CheckCircle,
+  Sun,
+  Moon,
   ExternalLink,
   Shield,
-  ChefHat,
-  Users,
-  Moon,
-  Sun,
   Droplets,
-  Layers,
-  ChevronDown,
+  CheckCircle,
+  Wifi,
+  Sparkles,
+  LogOut,
 } from "lucide-react";
-import { UserRole, ServiceRequest, Cafe } from "@/types/cafe";
+import { Table, Cafe, ServiceRequest } from "@/types/cafe";
 import { useRealtime } from "@/components/providers/query-provider";
 
 interface DashboardNavProps {
   cafe: Cafe;
-  currentRole: UserRole;
-  onChangeRole: (role: UserRole) => void;
+  staff: { name: string; role: string; email?: string } | null;
+  onLogout: () => void;
   serviceRequests: ServiceRequest[];
   onResolveServiceRequest: (id: string) => Promise<void>;
+  tables: Table[];
   selectedTableForQr: number;
   onChangeSelectedTableForQr: (tbl: number) => void;
   currentTab: "floor" | "kds" | "inventory" | "analytics";
@@ -33,10 +37,11 @@ interface DashboardNavProps {
 
 export function DashboardNav({
   cafe,
-  currentRole,
-  onChangeRole,
+  staff,
+  onLogout,
   serviceRequests,
   onResolveServiceRequest,
+  tables,
   selectedTableForQr,
   onChangeSelectedTableForQr,
   currentTab,
@@ -46,7 +51,11 @@ export function DashboardNav({
   const [showServiceMenu, setShowServiceMenu] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
+  const role = staff?.role || "admin";
   const pendingRequests = serviceRequests.filter((r) => r.status === "pending");
+
+  const selectedTableObj = tables.find((t) => t.table_number === selectedTableForQr) || tables[0];
+  const targetQrToken = selectedTableObj?.qr_token || `tbl-${selectedTableForQr}`;
 
   const toggleDarkMode = () => {
     setIsDarkMode(!isDarkMode);
@@ -58,24 +67,22 @@ export function DashboardNav({
   };
 
   return (
-    <header className="bg-[#2E1C14] text-white px-4 py-3 border-b border-white/10 sticky top-0 z-40 shadow-md">
+    <header className="sticky top-0 z-40 bg-[#2E1C14] text-white border-b border-white/10 px-4 py-3 shadow-md">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
-        {/* Left: Branding & Real-time Live Connection */}
+        {/* Left: Branding & Status Indicator */}
         <div className="flex items-center justify-between w-full md:w-auto gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center font-bold text-lg shadow-inner">
               <Coffee className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-extrabold text-sm sm:text-base tracking-tight leading-none text-white">
-                  {cafe.name}
-                </h1>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-neutral-300">
-                  Dashboard
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-extrabold text-sm tracking-tight text-white">{cafe.name}</h1>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono uppercase">
+                  Staff POS
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-neutral-400 mt-0.5">
+              <div className="flex items-center gap-2 text-[11px] text-neutral-300">
                 <span className="flex items-center gap-1">
                   <span
                     className={`w-2 h-2 rounded-full ${
@@ -91,11 +98,11 @@ export function DashboardNav({
           {/* Quick Customer QR App Simulator Launch Link */}
           <div className="flex items-center gap-1.5 md:hidden">
             <Link
-              href={`/order/${selectedTableForQr}`}
+              href={`/order/${encodeURIComponent(targetQrToken)}`}
               target="_blank"
               className="text-xs px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold flex items-center gap-1"
             >
-              <span>T#{selectedTableForQr} App</span>
+              <span>T#{selectedTableForQr} QR</span>
               <ExternalLink className="w-3 h-3" />
             </Link>
           </div>
@@ -104,7 +111,7 @@ export function DashboardNav({
         {/* Center: Navigation Tabs for High Density Dashboard */}
         <nav className="flex items-center bg-black/30 p-1 rounded-xl border border-white/10 text-xs font-semibold overflow-x-auto w-full md:w-auto">
           {/* Floor & Tables */}
-          {(currentRole === "admin" || currentRole === "waitstaff") && (
+          {(role === "admin" || role === "manager" || role === "waitstaff" || role === "cashier") && (
             <button
               onClick={() => onChangeTab("floor")}
               className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${
@@ -119,7 +126,7 @@ export function DashboardNav({
           )}
 
           {/* Kitchen KDS */}
-          {(currentRole === "admin" || currentRole === "barista") && (
+          {(role === "admin" || role === "manager" || role === "kitchen" || role === "barista") && (
             <button
               onClick={() => onChangeTab("kds")}
               className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${
@@ -134,7 +141,7 @@ export function DashboardNav({
           )}
 
           {/* Inventory & Costing */}
-          {currentRole === "admin" && (
+          {(role === "admin" || role === "manager" || role === "kitchen") && (
             <button
               onClick={() => onChangeTab("inventory")}
               className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${
@@ -143,12 +150,13 @@ export function DashboardNav({
                   : "text-neutral-300 hover:text-white"
               }`}
             >
+              <Package className="w-3.5 h-3.5" />
               <span>Inventory & Recipes</span>
             </button>
           )}
 
           {/* Analytics */}
-          {currentRole === "admin" && (
+          {(role === "admin" || role === "manager") && (
             <button
               onClick={() => onChangeTab("analytics")}
               className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${
@@ -157,32 +165,33 @@ export function DashboardNav({
                   : "text-neutral-300 hover:text-white"
               }`}
             >
+              <TrendingUp className="w-3.5 h-3.5" />
               <span>Analytics & KPIs</span>
             </button>
           )}
         </nav>
 
-        {/* Right: RBAC Switcher, Service Alerts Bell, and Customer View Link */}
-        <div className="flex items-center gap-2.5 self-end md:self-auto">
-          {/* QR App Quick Launcher */}
-          <div className="hidden md:flex items-center gap-1 bg-black/40 px-2.5 py-1 rounded-xl border border-white/10 text-xs">
-            <span className="text-neutral-400 text-[11px]">Preview App:</span>
+        {/* Right: Staff Identity & Logout, QR Launcher, Service Alerts Bell */}
+        <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
+          {/* Quick QR Viewer */}
+          <div className="hidden lg:flex items-center bg-black/40 px-2.5 py-1 rounded-xl border border-white/10 text-xs">
+            <span className="text-neutral-400 text-[11px] mr-1.5">Table QR:</span>
             <select
               value={selectedTableForQr}
               onChange={(e) => onChangeSelectedTableForQr(Number(e.target.value))}
               className="bg-transparent text-amber-300 font-bold focus:outline-none cursor-pointer"
             >
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((num) => (
-                <option key={num} value={num} className="bg-neutral-900 text-white">
-                  Table #{num}
+              {tables.map((tbl) => (
+                <option key={tbl.table_number} value={tbl.table_number} className="bg-neutral-900 text-white">
+                  Table #{tbl.table_number}
                 </option>
               ))}
             </select>
             <Link
-              href={`/order/${selectedTableForQr}`}
+              href={`/order/${encodeURIComponent(targetQrToken)}`}
               target="_blank"
-              className="ml-1 p-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-semibold flex items-center gap-0.5 transition"
-              title="Open mobile guest view in new tab"
+              className="ml-1.5 p-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-semibold flex items-center gap-0.5 transition"
+              title="Open table QR guest view in new tab"
             >
               <span>Launch</span>
               <ExternalLink className="w-3 h-3" />
@@ -264,19 +273,22 @@ export function DashboardNav({
             )}
           </div>
 
-          {/* Role-Based Access Control (RBAC) Selector */}
-          <div className="flex items-center bg-black/40 px-2.5 py-1 rounded-xl border border-white/10 text-xs">
-            <Shield className="w-3.5 h-3.5 text-amber-400 mr-1.5" />
-            <span className="text-neutral-400 text-[11px] mr-1 hidden sm:inline">Role:</span>
-            <select
-              value={currentRole}
-              onChange={(e) => onChangeRole(e.target.value as UserRole)}
-              className="bg-transparent text-white font-bold focus:outline-none cursor-pointer"
+          {/* Authenticated Staff Badge with Logout */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-black/40 px-2.5 py-1.5 rounded-xl border border-white/10 text-xs">
+              <Shield className="w-3.5 h-3.5 text-amber-400 mr-1.5" />
+              <span className="text-white font-bold">{staff?.name || "Staff"}</span>
+              <span className="ml-1.5 text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-500/30">
+                {role}
+              </span>
+            </div>
+            <button
+              onClick={onLogout}
+              className="p-2 text-xs text-neutral-300 hover:text-white bg-white/10 hover:bg-white/20 rounded-xl transition"
+              title="Sign Out Staff"
             >
-              <option value="admin" className="bg-neutral-900">Admin / Owner</option>
-              <option value="barista" className="bg-neutral-900">Barista / Kitchen</option>
-              <option value="waitstaff" className="bg-neutral-900">Waitstaff</option>
-            </select>
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Dark Mode Toggle */}

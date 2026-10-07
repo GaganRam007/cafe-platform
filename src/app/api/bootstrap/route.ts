@@ -1,20 +1,11 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/data-store";
 
 export async function GET() {
-  const store = getStore();
-  return NextResponse.json({
-    cafe: store.getCafe(),
-    tables: store.getTables(),
-    categories: store.getCategories(),
-    menuItems: store.getMenuItems(),
-    ingredients: store.getIngredients(),
-    recipeItems: store.getRecipeItems(),
-    orders: store.getOrders(),
-    serviceRequests: store.getServiceRequests(),
-    wastageLogs: store.getWastageLogs(),
-    vendors: store.getVendors(),
-    purchaseOrders: store.getPurchaseOrders(),
-    analytics: store.getAnalytics(),
-  });
+  // Deprecated to prevent customer data leakage (Phase 1 Requirement 2)
+  return NextResponse.json(
+    {
+      error: "Endpoint deprecated for security compliance. Diners must use /api/customer/menu and /api/customer/session. Staff must authenticate and use /api/dashboard/bootstrap.",
+    },
+    { status: 403 }
+  );
 }

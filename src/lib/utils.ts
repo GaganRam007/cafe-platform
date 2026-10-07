@@ -5,11 +5,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatCurrency(amount: number, currency: string = "USD"): string {
-  if (currency === "INR") {
-    return `₹${amount.toFixed(2)}`;
+export function formatCurrency(amount: number, currency: string = "INR"): string {
+  if (currency === "USD") {
+    return `$${amount.toFixed(2)}`;
   }
-  return `$${amount.toFixed(2)}`;
+  return `₹${amount.toFixed(2)}`;
 }
 
 export function playAudioNotification(type: "new_order" | "urgent" | "service") {

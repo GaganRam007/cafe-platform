@@ -1,22 +1,20 @@
-import { getStore } from "@/lib/data-store";
+import { RealtimeBus } from "@/lib/realtime";
 import { RealtimeMessage } from "@/types/cafe";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const store = getStore();
-
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
 
-      // Initial ping message
+      // Initial connection ping
       controller.enqueue(
         encoder.encode(`data: ${JSON.stringify({ type: "CONNECTED", timestamp: new Date().toISOString() })}\n\n`)
       );
 
-      // Subscribe to all store broadcasts
-      const unsubscribe = store.subscribe((event: RealtimeMessage) => {
+      // Subscribe to RealtimeBus
+      const unsubscribe = RealtimeBus.subscribe((event: RealtimeMessage) => {
         try {
           const payloadString = `data: ${JSON.stringify(event)}\n\n`;
           controller.enqueue(encoder.encode(payloadString));
@@ -25,7 +23,7 @@ export async function GET(req: Request) {
         }
       });
 
-      // Keepalive heartbeat every 20 seconds
+      // Keepalive heartbeat every 15 seconds
       const heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: heartbeat\n\n`));
@@ -33,9 +31,8 @@ export async function GET(req: Request) {
           clearInterval(heartbeat);
           unsubscribe();
         }
-      }, 20000);
+      }, 15000);
 
-      // Cleanup on abort
       req.signal.addEventListener("abort", () => {
         clearInterval(heartbeat);
         unsubscribe();

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Coffee,
@@ -22,6 +22,24 @@ import { formatCurrency } from "@/lib/utils";
 
 export default function HomePage() {
   const [selectedTable, setSelectedTable] = useState<number>(2);
+  const [tableTokens, setTableTokens] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    fetch("/api/customer/menu")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.tables) {
+          const map: Record<number, string> = {};
+          data.tables.forEach((t: any) => {
+            map[t.table_number] = t.qr_token;
+          });
+          setTableTokens(map);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const activeToken = tableTokens[selectedTable] || `tbl-${selectedTable}`;
 
   return (
     <div className="min-h-screen bg-[#FAF7F2] dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 flex flex-col">
@@ -57,7 +75,7 @@ export default function HomePage() {
             </Link>
 
             <Link
-              href={`/order/${selectedTable}`}
+              href={`/order/${encodeURIComponent(activeToken)}`}
               className="text-xs font-bold px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white shadow-md transition flex items-center gap-1.5"
             >
               <Smartphone className="w-3.5 h-3.5" />
@@ -166,7 +184,7 @@ export default function HomePage() {
 
             <div className="pt-6">
               <Link
-                href={`/order/${selectedTable}`}
+                href={`/order/${encodeURIComponent(activeToken)}`}
                 className="w-full py-3.5 px-4 rounded-2xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm shadow-lg flex items-center justify-center gap-2 transition active:scale-[0.99]"
               >
                 <Smartphone className="w-4 h-4" />

@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/data-store";
+import { DB } from "@/lib/db";
+import { verifyStaffSession } from "@/lib/auth";
+import { RealtimeBus } from "@/lib/realtime";
 
 export async function GET(
   request: Request,
   props: { params: Promise<{ orderId: string }> }
 ) {
   const { orderId } = await props.params;
-  const store = getStore();
-  const order = store.getOrderById(orderId);
+  const order = DB.getOrderDetails(orderId);
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
@@ -20,24 +21,46 @@ export async function PATCH(
 ) {
   const { orderId } = await props.params;
   try {
-    const body = await request.json();
-    const store = getStore();
+    const auth = await verifyStaffSession(undefined, request);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error || "Staff authentication required" }, { status: 403 });
+    }
 
+    const body = await request.json();
+
+    // Cancellation with inventory restoration (Phase 3)
+    if (body.action === "cancel") {
+      const cancelled = DB.cancelOrder(orderId);
+      if (!cancelled) return NextResponse.json({ error: "Order could not be cancelled" }, { status: 400 });
+
+      RealtimeBus.broadcast("ORDER_UPDATED", cancelled);
+      RealtimeBus.broadcast("TABLE_UPDATED", DB.getTableById(cancelled.table_id));
+      RealtimeBus.broadcast("INVENTORY_DEDUCTED", { ingredients: DB.getAllIngredients() });
+      return NextResponse.json({ order: cancelled });
+    }
+
+    // Item-level completion
     if (body.item_id && body.item_status) {
-      const order = store.updateOrderItemStatus(orderId, body.item_id, body.item_status);
+      const order = DB.updateOrderItemStatus(orderId, body.item_id, body.item_status);
       if (!order) return NextResponse.json({ error: "Order or item not found" }, { status: 404 });
+
+      RealtimeBus.broadcast("ORDER_UPDATED", order);
       return NextResponse.json({ order });
     }
 
+    // Order-level status transition
     if (body.status || body.payment_status) {
-      const order = store.updateOrderStatus(orderId, body.status, body.payment_status);
+      const order = DB.updateOrderStatus(orderId, body.status, body.payment_status);
       if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
+
+      RealtimeBus.broadcast("ORDER_UPDATED", order);
+      RealtimeBus.broadcast("TABLE_UPDATED", DB.getTableById(order.table_id));
       return NextResponse.json({ order });
     }
 
     return NextResponse.json({ error: "Invalid patch payload" }, { status: 400 });
-  } catch (err) {
-    console.error("Order patch error", err);
-    return NextResponse.json({ error: "Failed to update order" }, { status: 500 });
+  } catch (err: any) {
+    console.error("Order patch error:", err);
+    return NextResponse.json({ error: err.message || "Failed to update order" }, { status: 500 });
   }
 }

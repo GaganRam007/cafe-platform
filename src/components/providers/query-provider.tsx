@@ -53,7 +53,8 @@ function RealtimeListener({ children }: { children: React.ReactNode }) {
             setLastEvent(msg);
 
             // Invalidate queries to refresh data across all views
-            qc.invalidateQueries({ queryKey: ["bootstrap"] });
+            qc.invalidateQueries({ queryKey: ["dashboard_bootstrap"] });
+            qc.invalidateQueries({ queryKey: ["customer_session"] });
             qc.invalidateQueries({ queryKey: ["orders"] });
             qc.invalidateQueries({ queryKey: ["tables"] });
 

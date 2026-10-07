@@ -18,7 +18,7 @@ export function QRModal({ cafe, table, onClose }: QRModalProps) {
   useEffect(() => {
     if (!table) return;
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const orderUrl = `${origin}/order/${table.table_number}`;
+    const orderUrl = `${origin}/order/${encodeURIComponent(table.qr_token)}`;
 
     QRCode.toDataURL(orderUrl, {
       width: 400,
@@ -34,7 +34,7 @@ export function QRModal({ cafe, table, onClose }: QRModalProps) {
 
   if (!table) return null;
 
-  const orderUrl = typeof window !== "undefined" ? `${window.location.origin}/order/${table.table_number}` : `/order/${table.table_number}`;
+  const orderUrl = typeof window !== "undefined" ? `${window.location.origin}/order/${encodeURIComponent(table.qr_token)}` : `/order/${encodeURIComponent(table.qr_token)}`;
 
   const handlePrint = () => {
     window.print();
