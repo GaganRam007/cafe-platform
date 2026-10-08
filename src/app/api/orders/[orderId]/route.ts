@@ -28,7 +28,7 @@ export async function PATCH(
 
     const body = await request.json();
 
-    // Cancellation with inventory restoration (Phase 3)
+    // Cancellation with inventory restoration
     if (body.action === "cancel") {
       const cancelled = DB.cancelOrder(orderId);
       if (!cancelled) return NextResponse.json({ error: "Order could not be cancelled" }, { status: 400 });
@@ -48,9 +48,24 @@ export async function PATCH(
       return NextResponse.json({ order });
     }
 
-    // Order-level status transition
-    if (body.status || body.payment_status) {
-      const order = DB.updateOrderStatus(orderId, body.status, body.payment_status);
+    // Offline payments safety: Reject raw payment status flip
+    if (body.payment_status === "paid") {
+      return NextResponse.json(
+        {
+          error:
+            "Settling orders must be processed via POST /api/staff/settle-bill for audit logging, payment method verification, and GST invoice generation.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Order-level status transition with FSM state machine checks
+    if (body.status) {
+      const order = DB.transitionOrderStatus(
+        orderId,
+        body.status,
+        auth.session?.role || "admin"
+      );
       if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
       RealtimeBus.broadcast("ORDER_UPDATED", order);
@@ -61,6 +76,6 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid patch payload" }, { status: 400 });
   } catch (err: any) {
     console.error("Order patch error:", err);
-    return NextResponse.json({ error: err.message || "Failed to update order" }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Failed to update order" }, { status: 400 });
   }
 }

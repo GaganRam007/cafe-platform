@@ -25,12 +25,17 @@ import { CartBottomBar } from "@/components/customer/cart-bottom-bar";
 import { OtpAuthModal } from "@/components/customer/otp-auth-modal";
 import { MenuItem, DietaryTag, Table, Cafe, Order } from "@/types/cafe";
 import { playAudioNotification } from "@/lib/utils";
+import { Language, getTranslation } from "@/lib/i18n";
 
 export default function TableOrderPage() {
   const params = useParams();
   const rawQrToken = (params?.qr_token as string) || "";
   const qrToken = decodeURIComponent(rawQrToken);
   const qc = useQueryClient();
+
+  // Language state (en, hi, kn)
+  const [currentLang, setCurrentLang] = useState<Language>("en");
+  const t = (key: string) => getTranslation(key, currentLang);
 
   // Anonymous guest fallback identity (before OTP verification)
   const [guestName, setGuestName] = useState<string>("Guest Diner");
@@ -261,6 +266,8 @@ export default function TableOrderPage() {
         onUpdateGuestName={handleUpdateGuestName}
         customer={customer}
         onOpenAuth={() => setIsAuthModalOpen(true)}
+        currentLang={currentLang}
+        onSelectLang={setCurrentLang}
       />
 
       {/* Service Request Toast */}
@@ -281,7 +288,7 @@ export default function TableOrderPage() {
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
             <input
               type="text"
-              placeholder="Search handcrafted brew, roast, pastries..."
+              placeholder={t("search_placeholder")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-white dark:bg-neutral-900 pl-10 pr-4 py-2.5 rounded-2xl border border-neutral-200 dark:border-neutral-800 text-xs sm:text-sm text-neutral-900 dark:text-white placeholder:text-neutral-400 outline-none focus:border-amber-600 transition shadow-sm"
@@ -291,11 +298,11 @@ export default function TableOrderPage() {
           {/* Dietary Filter Pills */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
             {[
-              { id: "all", label: "All Items" },
-              { id: "veg", label: "🌱 Veg" },
-              { id: "non-veg", label: "🍗 Non-Veg" },
-              { id: "vegan", label: "🌿 100% Vegan" },
-              { id: "gluten-free", label: "🌾 Gluten-Free" },
+              { id: "all", label: t("dietary_all") },
+              { id: "veg", label: t("dietary_veg") },
+              { id: "non-veg", label: t("dietary_nonveg") },
+              { id: "vegan", label: t("dietary_vegan") },
+              { id: "gluten-free", label: t("dietary_gluten_free") },
             ].map((diet) => (
               <button
                 key={diet.id}
@@ -323,7 +330,7 @@ export default function TableOrderPage() {
                   : "bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-800"
               }`}
             >
-              All Categories
+              {t("all_categories")}
             </button>
             {categories.map((cat: any) => (
               <button

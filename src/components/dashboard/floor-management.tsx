@@ -14,38 +14,47 @@ import {
   Map as MapIcon,
   CheckCircle,
   ExternalLink,
+  Receipt,
 } from "lucide-react";
-import { Table, TableStatus, MenuItem, Cafe } from "@/types/cafe";
+import { Table, TableStatus, MenuItem, Cafe, Order } from "@/types/cafe";
 import { QRModal } from "./qr-modal";
 import { ManualOrderModal } from "./manual-order-modal";
 import { MergeSplitModal } from "./merge-split-modal";
+import { SettleBillModal } from "./settle-bill-modal";
 
 interface FloorManagementProps {
   cafe: Cafe;
   tables: Table[];
   menuItems: MenuItem[];
+  orders?: Order[];
+  staffRole?: string;
   onUpdateTableStatus: (tableId: string, status: TableStatus) => Promise<void>;
   onResetTable: (tableId: string) => Promise<void>;
   onMergeTables: (target: number, source: number) => Promise<void>;
   onSplitTables: (target: number) => Promise<void>;
   onCreateManualOrder: (orderPayload: any) => Promise<void>;
+  onRefreshData?: () => void;
 }
 
 export function FloorManagement({
   cafe,
   tables,
   menuItems,
+  orders = [],
+  staffRole = "staff",
   onUpdateTableStatus,
   onResetTable,
   onMergeTables,
   onSplitTables,
   onCreateManualOrder,
+  onRefreshData,
 }: FloorManagementProps) {
   const [viewMode, setViewMode] = useState<"grid" | "floor_plan">("grid");
   const [selectedZone, setSelectedZone] = useState<string>("all");
   const [qrModalTable, setQrModalTable] = useState<Table | null>(null);
   const [manualOrderTable, setManualOrderTable] = useState<Table | null>(null);
   const [mergeModalTable, setMergeModalTable] = useState<Table | null>(null);
+  const [settleModalTable, setSettleModalTable] = useState<Table | null>(null);
 
   // Status badge styling helper
   const getStatusConfig = (status: TableStatus) => {
@@ -234,41 +243,61 @@ export function FloorManagement({
                   </div>
                 </div>
 
+                {/* Settle Bill Quick Trigger on active/billing tables */}
+                {(table.status === "billing" || table.status === "active_order") && (
+                  <button
+                    onClick={() => setSettleModalTable(table)}
+                    className="w-full mt-3 py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition"
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>Settle Bill & GST Invoice</span>
+                  </button>
+                )}
+
                 {/* Table Card Quick Action Buttons */}
-                <div className="mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800 grid grid-cols-4 gap-1">
+                <div className="mt-3 pt-2.5 border-t border-neutral-100 dark:border-neutral-800 grid grid-cols-5 gap-1">
                   <button
                     onClick={() => setQrModalTable(table)}
-                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
+                    className="p-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
                     title="Generate and print dynamic QR placard"
                   >
-                    <QrCode className="w-3.5 h-3.5 text-amber-600" />
-                    <span>QR Code</span>
+                    <QrCode className="w-3 h-3 text-amber-600" />
+                    <span>QR</span>
                   </button>
 
                   <button
                     onClick={() => setManualOrderTable(table)}
-                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
+                    className="p-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
                     title="Take manual order (phone/walk-in)"
                   >
-                    <PlusCircle className="w-3.5 h-3.5 text-blue-600" />
+                    <PlusCircle className="w-3 h-3 text-blue-600" />
                     <span>Order</span>
                   </button>
 
                   <button
+                    onClick={() => setSettleModalTable(table)}
+                    className="p-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
+                    title="Settle bill offline"
+                  >
+                    <Receipt className="w-3 h-3 text-amber-500" />
+                    <span>Settle</span>
+                  </button>
+
+                  <button
                     onClick={() => setMergeModalTable(table)}
-                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
+                    className="p-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
                     title="Merge or split table"
                   >
-                    <GitMerge className="w-3.5 h-3.5 text-purple-600" />
+                    <GitMerge className="w-3 h-3 text-purple-600" />
                     <span>Merge</span>
                   </button>
 
                   <button
                     onClick={() => onResetTable(table.id)}
-                    className="p-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
+                    className="p-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[10px] font-semibold flex flex-col items-center justify-center gap-1 transition"
                     title="Mark cleaned & reset table"
                   >
-                    <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+                    <RotateCcw className="w-3 h-3 text-emerald-600" />
                     <span>Reset</span>
                   </button>
                 </div>
@@ -370,6 +399,19 @@ export function FloorManagement({
           onClose={() => setMergeModalTable(null)}
           onMerge={onMergeTables}
           onSplit={onSplitTables}
+        />
+      )}
+
+      {settleModalTable && (
+        <SettleBillModal
+          table={settleModalTable}
+          orders={orders}
+          staffRole={staffRole}
+          onClose={() => setSettleModalTable(null)}
+          onSettled={() => {
+            setSettleModalTable(null);
+            onRefreshData?.();
+          }}
         />
       )}
     </div>

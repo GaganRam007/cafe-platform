@@ -12,16 +12,20 @@ import {
   Lock,
   UserCheck,
 } from "lucide-react";
-import { DashboardNav } from "@/components/dashboard/dashboard-nav";
+import { DashboardNav, DashboardTab } from "@/components/dashboard/dashboard-nav";
 import { FloorManagement } from "@/components/dashboard/floor-management";
 import { KDSView } from "@/components/dashboard/kds-view";
 import { InventoryManagement } from "@/components/dashboard/inventory-management";
+import { MenuManagement } from "@/components/dashboard/menu-management";
+import { VendorManagement } from "@/components/dashboard/vendor-management";
+import { EodReconciliationView } from "@/components/dashboard/eod-view";
+import { AuditLogsView } from "@/components/dashboard/audit-logs-view";
 import { AnalyticsView } from "@/components/dashboard/analytics-view";
 import { TableStatus, OrderStatus, OrderItemStatus } from "@/types/cafe";
 
 export default function StaffDashboardPage() {
   const qc = useQueryClient();
-  const [currentTab, setCurrentTab] = useState<"floor" | "kds" | "inventory" | "analytics">("floor");
+  const [currentTab, setCurrentTab] = useState<DashboardTab>("floor");
   const [selectedTableForQr, setSelectedTableForQr] = useState<number>(1);
 
   // Login PIN Form State
@@ -292,6 +296,21 @@ export default function StaffDashboardPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["dashboard_bootstrap"] }),
   });
 
+  // Update Menu Item Mutation
+  const updateMenuItemMutation = useMutation({
+    mutationFn: async ({ itemId, updates }: { itemId: string; updates: any }) => {
+      const res = await authFetch(`/api/staff/menu/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update menu item");
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["dashboard_bootstrap"] }),
+  });
+
   // 1. Unauthenticated Staff Screen (Strict Server-Side RBAC Enforcement)
   if (isError || (!isLoading && !staff)) {
     return (
@@ -434,6 +453,9 @@ export default function StaffDashboardPage() {
             cafe={cafe}
             tables={tables}
             menuItems={menuItems}
+            orders={orders}
+            staffRole={staff?.role}
+            onRefreshData={() => refetch()}
             onUpdateTableStatus={async (tableId, status) => {
               await updateTableMutation.mutateAsync({ tableId, status });
             }}
@@ -464,6 +486,15 @@ export default function StaffDashboardPage() {
           />
         )}
 
+        {currentTab === "menu" && (
+          <MenuManagement
+            menuItems={menuItems}
+            onUpdateItem={async (itemId, updates) => {
+              await updateMenuItemMutation.mutateAsync({ itemId, updates });
+            }}
+          />
+        )}
+
         {currentTab === "inventory" && (
           <InventoryManagement
             ingredients={ingredients}
@@ -479,6 +510,24 @@ export default function StaffDashboardPage() {
               await createPOMutation.mutateAsync(payload);
             }}
           />
+        )}
+
+        {currentTab === "vendors" && (
+          <VendorManagement
+            vendors={vendors}
+            purchaseOrders={purchaseOrders}
+            onCreatePO={async (payload) => {
+              await createPOMutation.mutateAsync(payload);
+            }}
+          />
+        )}
+
+        {currentTab === "eod" && (
+          <EodReconciliationView />
+        )}
+
+        {currentTab === "audit" && (
+          <AuditLogsView />
         )}
 
         {currentTab === "analytics" && analytics && (

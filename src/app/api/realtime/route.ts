@@ -4,6 +4,10 @@ import { RealtimeMessage } from "@/types/cafe";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const clientTableId = searchParams.get("table_id");
+  const clientRole = searchParams.get("role");
+
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
@@ -13,10 +17,25 @@ export async function GET(req: Request) {
         encoder.encode(`data: ${JSON.stringify({ type: "CONNECTED", timestamp: new Date().toISOString() })}\n\n`)
       );
 
-      // Subscribe to RealtimeBus
-      const unsubscribe = RealtimeBus.subscribe((event: RealtimeMessage) => {
+      // Subscribe to RealtimeBus with scope filtering
+      const unsubscribe = RealtimeBus.subscribe((event: RealtimeMessage & { _scope?: { tableId?: string; role?: string } }) => {
         try {
-          const payloadString = `data: ${JSON.stringify(event)}\n\n`;
+          // Scope checking:
+          // If event is scoped to a specific table, only send to that table or staff
+          if (event._scope?.tableId && clientTableId && event._scope.tableId !== clientTableId && !clientRole) {
+            return;
+          }
+          // If event is scoped to a specific role, only send if role matches or admin
+          if (event._scope?.role && clientRole && event._scope.role !== clientRole && clientRole !== "admin" && clientRole !== "owner") {
+            return;
+          }
+
+          const cleanEvent: RealtimeMessage = {
+            type: event.type,
+            payload: event.payload,
+            timestamp: event.timestamp,
+          };
+          const payloadString = `data: ${JSON.stringify(cleanEvent)}\n\n`;
           controller.enqueue(encoder.encode(payloadString));
         } catch (err) {
           console.error("SSE stream enqueue error", err);

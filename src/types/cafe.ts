@@ -4,7 +4,7 @@ export type OrderStatus = "draft" | "sent" | "preparing" | "ready" | "served" | 
 
 export type OrderItemStatus = "pending" | "preparing" | "ready" | "delivered";
 
-export type PaymentStatus = "unpaid" | "paid" | "cash_pending";
+export type PaymentStatus = "unpaid" | "paid" | "cash_pending" | "pending" | "void";
 
 export type ServiceRequestType = "call_server" | "water" | "bill" | "clean";
 
@@ -138,6 +138,11 @@ export interface Order {
   payment_method?: string; // 'apple_pay' | 'google_pay' | 'card' | 'upi' | 'cash'
   customer_name: string;
   guest_count: number;
+  settled_at?: string;
+  settled_by?: string;
+  is_void?: boolean;
+  discount_amount?: number;
+  invoice?: any;
   created_at: string;
   updated_at: string;
 }
@@ -196,6 +201,9 @@ export interface Vendor {
   email: string;
   category: string;
   lead_time_days: number;
+  min_order_amount?: number;
+  payment_terms?: string;
+  items_supplied?: string[];
 }
 
 export interface PurchaseOrderItem {
@@ -215,7 +223,8 @@ export interface PurchaseOrder {
   po_number: string;
   items: PurchaseOrderItem[];
   total_cost: number;
-  status: "draft" | "submitted" | "received" | "cancelled";
+  total_amount?: number;
+  status: "draft" | "submitted" | "received" | "cancelled" | "ordered";
   created_at: string;
   expected_delivery?: string;
 }
@@ -258,7 +267,8 @@ export type RealtimeEventType =
   | "INVENTORY_DEDUCTED"
   | "INVENTORY_UPDATED"
   | "WASTAGE_LOGGED"
-  | "PO_CREATED";
+  | "PO_CREATED"
+  | "MENU_UPDATED";
 
 export interface RealtimeMessage {
   type: RealtimeEventType;

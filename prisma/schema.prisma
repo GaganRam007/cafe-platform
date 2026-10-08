@@ -203,29 +203,38 @@ model ModifierIngredient {
 }
 
 model Order {
-  id                   String        @id @default(cuid())
-  order_number         String        @unique // e.g. ORD-20261006-0001
-  table_session_id     String
-  table_id             String
-  customer_id          String?
-  status               OrderStatus   @default(SENT)
-  subtotal             Float
-  cgst_amount          Float
-  sgst_amount          Float
-  total_tax            Float
-  service_fee          Float         @default(0)
-  tip_amount           Float         @default(0)
-  total_amount         Float
-  payment_status       PaymentStatus @default(PENDING)
-  payment_method       String?       // razorpay, cash, upi
-  razorpay_order_id    String?
-  razorpay_payment_id  String?
-  created_at           DateTime      @default(now())
-  updated_at           DateTime      @updatedAt
-  table_session        TableSession  @relation(fields: [table_session_id], references: [id])
-  customer             Customer?     @relation(fields: [customer_id], references: [id])
-  items                OrderItem[]
-  invoice              Invoice?
+  id                      String        @id @default(cuid())
+  order_number            String        @unique // e.g. ORD-20261006-0001
+  table_session_id        String
+  table_id                String
+  customer_id             String?
+  status                  OrderStatus   @default(SENT)
+  subtotal                Float
+  discount_amount         Float         @default(0)
+  discount_type           String?       // flat, percentage, comp, staff_meal
+  discount_reason         String?
+  discount_authorized_by  String?
+  cgst_amount             Float
+  sgst_amount             Float
+  total_tax               Float
+  service_fee             Float         @default(0)
+  tip_amount              Float         @default(0)
+  total_amount            Float
+  payment_status          PaymentStatus @default(PENDING)
+  payment_method          String?       // cash, upi, card
+  settled_by              String?
+  settled_at              DateTime?
+  is_void                 Boolean       @default(false)
+  void_reason             String?
+  voided_by               String?
+  voided_at               DateTime?
+  created_at              DateTime      @default(now())
+  updated_at              DateTime      @updatedAt
+  table_session           TableSession  @relation(fields: [table_session_id], references: [id])
+  customer                Customer?     @relation(fields: [customer_id], references: [id])
+  items                   OrderItem[]
+  invoice                 Invoice?
+  audit_logs              AuditLog[]
 }
 
 model OrderItem {
@@ -266,11 +275,14 @@ model Invoice {
   fssai_number     String
   hsn_sac_code     String   @default("996331")
   subtotal         Float
+  discount_amount  Float    @default(0)
   cgst_amount      Float
   sgst_amount      Float
   service_fee      Float
   tip_amount       Float
   total_amount     Float
+  payment_method   String?  // cash, upi, card
+  settled_by_name  String?
   whatsapp_status  String   @default("QUEUED") // QUEUED, SENT, FAILED
   created_at       DateTime @default(now())
   order            Order    @relation(fields: [order_id], references: [id])
@@ -329,3 +341,52 @@ model OtpVerification {
   attempts   Int      @default(0)
   created_at DateTime @default(now())
 }
+
+model StaffUser {
+  id         String   @id @default(cuid())
+  name       String
+  email      String   @unique
+  role       String   // owner, manager, barista, waitstaff, cashier
+  pin_hash   String
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  order_id       String?
+  action         String   // SETTLED, REOPENED, DISCOUNT_APPLIED, VOIDED, TIP_MODIFIED, LOGIN
+  actor_id       String
+  actor_name     String
+  actor_role     String
+  payment_method String?
+  gross_subtotal Float?
+  discount_amount Float?
+  tax_amount     Float?
+  final_amount   Float?
+  reason         String?
+  ip_address     String
+  created_at     DateTime @default(now())
+  order          Order?   @relation(fields: [order_id], references: [id])
+}
+
+model EodReconciliation {
+  id                      String   @id @default(cuid())
+  business_date           String   @unique // YYYY-MM-DD
+  opened_at               DateTime
+  closed_at               DateTime @default(now())
+  closed_by               String
+  opening_float           Float
+  system_cash_sales       Float
+  system_upi_sales        Float
+  system_card_sales       Float
+  gross_sales             Float
+  total_discounts         Float
+  total_voids_count       Int      @default(0)
+  expected_cash_in_drawer Float
+  actual_cash_counted     Float
+  cash_variance           Float
+  variance_notes          String?
+  status                  String   @default("BALANCED") // BALANCED, OVERAGE, SHORTAGE, DISCREPANCY_FLAGGED
+}
+

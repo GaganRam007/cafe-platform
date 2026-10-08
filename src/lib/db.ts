@@ -303,6 +303,97 @@ function initializeDatabase() {
       created_at TEXT NOT NULL
     );
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS staff_users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      role TEXT NOT NULL,
+      pin_hash TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      order_id TEXT,
+      action TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      actor_role TEXT NOT NULL,
+      payment_method TEXT,
+      gross_subtotal REAL,
+      discount_amount REAL DEFAULT 0,
+      tax_amount REAL DEFAULT 0,
+      final_amount REAL,
+      reason TEXT,
+      metadata TEXT,
+      ip_address TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS eod_reconciliations (
+      id TEXT PRIMARY KEY,
+      business_date TEXT UNIQUE NOT NULL,
+      opened_at TEXT NOT NULL,
+      closed_at TEXT NOT NULL,
+      closed_by TEXT NOT NULL,
+      opening_float REAL NOT NULL,
+      system_cash_sales REAL NOT NULL,
+      system_upi_sales REAL NOT NULL,
+      system_card_sales REAL NOT NULL,
+      gross_sales REAL NOT NULL,
+      total_discounts REAL NOT NULL,
+      total_voids_count INTEGER NOT NULL DEFAULT 0,
+      expected_cash_in_drawer REAL NOT NULL,
+      actual_cash_counted REAL NOT NULL,
+      cash_variance REAL NOT NULL,
+      variance_notes TEXT,
+      status TEXT NOT NULL DEFAULT 'BALANCED'
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS invoice_sequences (
+      sequence_date TEXT PRIMARY KEY,
+      last_sequence INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  // Safe table migrations for orders
+  const orderCols = db.query("PRAGMA table_info(orders)").all() as any[];
+  const orderColNames = new Set(orderCols.map((c) => c.name));
+  if (!orderColNames.has("discount_amount")) db.run("ALTER TABLE orders ADD COLUMN discount_amount REAL NOT NULL DEFAULT 0");
+  if (!orderColNames.has("discount_type")) db.run("ALTER TABLE orders ADD COLUMN discount_type TEXT");
+  if (!orderColNames.has("discount_reason")) db.run("ALTER TABLE orders ADD COLUMN discount_reason TEXT");
+  if (!orderColNames.has("discount_authorized_by")) db.run("ALTER TABLE orders ADD COLUMN discount_authorized_by TEXT");
+  if (!orderColNames.has("settled_by")) db.run("ALTER TABLE orders ADD COLUMN settled_by TEXT");
+  if (!orderColNames.has("settled_at")) db.run("ALTER TABLE orders ADD COLUMN settled_at TEXT");
+  if (!orderColNames.has("is_void")) db.run("ALTER TABLE orders ADD COLUMN is_void INTEGER NOT NULL DEFAULT 0");
+  if (!orderColNames.has("void_reason")) db.run("ALTER TABLE orders ADD COLUMN void_reason TEXT");
+  if (!orderColNames.has("voided_by")) db.run("ALTER TABLE orders ADD COLUMN voided_by TEXT");
+  if (!orderColNames.has("voided_at")) db.run("ALTER TABLE orders ADD COLUMN voided_at TEXT");
+
+  // Safe table migrations for invoices
+  const invCols = db.query("PRAGMA table_info(invoices)").all() as any[];
+  const invColNames = new Set(invCols.map((c) => c.name));
+  if (!invColNames.has("discount_amount")) db.run("ALTER TABLE invoices ADD COLUMN discount_amount REAL NOT NULL DEFAULT 0");
+  if (!invColNames.has("payment_method")) db.run("ALTER TABLE invoices ADD COLUMN payment_method TEXT");
+  if (!invColNames.has("settled_by_name")) db.run("ALTER TABLE invoices ADD COLUMN settled_by_name TEXT");
+  if (!invColNames.has("status")) db.run("ALTER TABLE invoices ADD COLUMN status TEXT NOT NULL DEFAULT 'ISSUED'");
+
+  // Performance Indexes
+  db.run("CREATE INDEX IF NOT EXISTS idx_orders_session ON orders(table_session_id);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_orders_pay_status ON orders(payment_status);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_order_items_ord ON order_items(order_id);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_audit_order ON audit_logs(order_id);");
+  db.run("CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);");
 }
 
 initializeDatabase();
@@ -337,10 +428,7 @@ export function verifyQrToken(token: string): { valid: boolean; tableNumber: num
 }
 
 // Seed Initial Data if empty
-function seedDatabase() {
-  const cafeExists = db.query("SELECT id FROM cafe LIMIT 1").get();
-  if (cafeExists) return;
-
+function seedDatabaseInternal() {
   db.run(`
     INSERT INTO cafe (id, name, tagline, slug, address, phone, gstin, fssai_number, wifi_ssid, wifi_pass, cgst_rate, sgst_rate, service_fee_rate, currency, currency_symbol)
     VALUES (
@@ -607,6 +695,55 @@ function seedDatabase() {
   db.run("INSERT INTO vendors VALUES ('ven-dairy', 'Akshayakalpa Organic Dairy', 'Dr. Shashi Kumar', '+91 98451 22334', 'b2b@akshayakalpa.org', 'A2 Organic Milk & Plant Milks', 1)");
   db.run("INSERT INTO vendors VALUES ('ven-bakery', 'Sour House Artisan Boulangerie', 'Chef Selvan', '+91 98452 33445', 'supply@sourhouse.in', 'Sourdough Loaves & Viennoiserie', 1)");
   db.run("INSERT INTO vendors VALUES ('ven-produce', 'Triton Hydroponics & Farm Co.', 'Elena Gomez', '+91 98453 44556', 'fresh@tritonfarms.in', 'Hass Avocados, Microgreens & Eggs', 2)");
+
+  // Staff Users
+  const staffUsers = [
+    { id: "staff-owner", name: "Aura Owner", email: "owner@auracafe.com", role: "owner", pin: "1234" },
+    { id: "staff-manager", name: "Floor Manager", email: "manager@auracafe.com", role: "manager", pin: "1111" },
+    { id: "staff-barista", name: "Head Barista / Chef", email: "barista@auracafe.com", role: "barista", pin: "2345" },
+    { id: "staff-waitstaff", name: "Floor Waitstaff", email: "waitstaff@auracafe.com", role: "waitstaff", pin: "3456" },
+    { id: "staff-cashier", name: "Billing Cashier", email: "cashier@auracafe.com", role: "cashier", pin: "4567" },
+  ];
+  for (const s of staffUsers) {
+    const pinHash = crypto.createHash("sha256").update(s.pin).digest("hex");
+    db.run(
+      "INSERT OR REPLACE INTO staff_users (id, name, email, role, pin_hash, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, datetime('now'))",
+      [s.id, s.name, s.email, s.role, pinHash]
+    );
+  }
+}
+
+export function seedDatabase(force: boolean = false) {
+  if (force) {
+    db.run("DELETE FROM order_items");
+    db.run("DELETE FROM orders");
+    db.run("DELETE FROM invoices");
+    db.run("DELETE FROM service_requests");
+    db.run("DELETE FROM audit_logs");
+    db.run("DELETE FROM eod_reconciliations");
+    db.run("DELETE FROM wastage_logs");
+    db.run("DELETE FROM purchase_orders");
+    db.run("DELETE FROM modifier_ingredients");
+    db.run("DELETE FROM modifier_options");
+    db.run("DELETE FROM modifier_groups");
+    db.run("DELETE FROM recipe_items");
+    db.run("DELETE FROM ingredients");
+    db.run("DELETE FROM menu_items");
+    db.run("DELETE FROM menu_categories");
+    db.run("DELETE FROM diners");
+    db.run("DELETE FROM table_sessions");
+    db.run("DELETE FROM customers");
+    db.run("DELETE FROM tables");
+    db.run("DELETE FROM cafe");
+    db.run("DELETE FROM staff_users");
+    db.run("DELETE FROM vendors");
+    db.run("DELETE FROM otp_verifications");
+    seedDatabaseInternal();
+    return;
+  }
+  const cafeExists = db.query("SELECT id FROM cafe LIMIT 1").get();
+  if (cafeExists) return;
+  seedDatabaseInternal();
 }
 
 seedDatabase();
@@ -1301,5 +1438,465 @@ export const DB = {
 
     db.run("UPDATE otp_verifications SET attempts = attempts + 1 WHERE phone = ?", [phone]);
     return false;
+  },
+
+  // 1. Offline Counter Settle Bill (Staff Action)
+  settleBillSecure: (params: {
+    orderId: string;
+    paymentMethod: "cash" | "upi" | "card";
+    discount?: {
+      type: "flat" | "percentage" | "comp" | "staff_meal";
+      value: number;
+      reason: string;
+      managerPin?: string;
+    };
+    tip?: number;
+    serviceChargeOptIn?: boolean;
+    customerPhone?: string;
+    actor: { id: string; name: string; role: string };
+    ipAddress?: string;
+  }) => {
+    const order = db.query("SELECT * FROM orders WHERE id = ?").get(params.orderId) as any;
+    if (!order) throw new Error("Order not found");
+    if (order.payment_status === "paid") throw new Error("Order is already settled and paid");
+    if (order.is_void) throw new Error("Cannot settle a voided order");
+
+    const cafe = db.query("SELECT * FROM cafe LIMIT 1").get() as any;
+
+    // Validate discount
+    let discountAmount = 0;
+    if (params.discount && params.discount.value > 0) {
+      if (!params.discount.reason || params.discount.reason.trim().length < 5) {
+        throw new Error("Mandatory discount reason of at least 5 characters is required");
+      }
+      if (params.discount.type === "percentage") {
+        discountAmount = Number(((order.subtotal * params.discount.value) / 100).toFixed(2));
+      } else {
+        discountAmount = Number(params.discount.value.toFixed(2));
+      }
+      discountAmount = Math.min(discountAmount, order.subtotal);
+
+      // Check role policy: Cashier max 10% or ₹200 unless manager PIN or manager/owner role
+      const isHighDiscount = (params.discount.type === "percentage" && params.discount.value > 10) || discountAmount > 200;
+      if (isHighDiscount && (params.actor.role === "cashier" || params.actor.role === "waitstaff")) {
+        if (!params.discount.managerPin) {
+          throw new Error("Manager PIN authorization required for discounts exceeding 10% or ₹200");
+        }
+        if (params.discount.managerPin !== "1111" && params.discount.managerPin !== "1234") {
+          throw new Error("Invalid Manager PIN for discount authorization");
+        }
+      }
+    }
+
+    const netTaxable = Math.max(0, order.subtotal - discountAmount);
+    const cgstAmount = Number((netTaxable * cafe.cgst_rate).toFixed(2));
+    const sgstAmount = Number((netTaxable * cafe.sgst_rate).toFixed(2));
+    const totalTax = Number((cgstAmount + sgstAmount).toFixed(2));
+    const serviceFee = params.serviceChargeOptIn !== false && order.service_fee > 0
+      ? Number((netTaxable * cafe.service_fee_rate).toFixed(2))
+      : 0;
+    const tip = Math.max(0, Number(params.tip || 0));
+    const finalTotal = Number((netTaxable + totalTax + serviceFee + tip).toFixed(2));
+
+    const invoiceNumber = DB.generateInvoiceNumber();
+
+    const settleTx = db.transaction(() => {
+      // 1. Update order
+      db.run(
+        `UPDATE orders SET
+          payment_status = 'paid',
+          payment_method = ?,
+          settled_by = ?,
+          settled_at = datetime('now'),
+          discount_amount = ?,
+          discount_type = ?,
+          discount_reason = ?,
+          discount_authorized_by = ?,
+          cgst_amount = ?,
+          sgst_amount = ?,
+          total_tax = ?,
+          service_fee = ?,
+          tip_amount = ?,
+          total_amount = ?,
+          invoice_number = ?,
+          status = 'completed',
+          updated_at = datetime('now')
+         WHERE id = ?`,
+        [
+          params.paymentMethod,
+          params.actor.id,
+          discountAmount,
+          params.discount?.type || null,
+          params.discount?.reason || null,
+          params.actor.id,
+          cgstAmount,
+          sgstAmount,
+          totalTax,
+          serviceFee,
+          tip,
+          finalTotal,
+          invoiceNumber,
+          order.id
+        ]
+      );
+
+      // 2. Insert invoice
+      db.run(
+        `INSERT OR REPLACE INTO invoices (
+          id, invoice_number, order_id, customer_name, customer_phone,
+          gstin, fssai_number, hsn_sac_code, subtotal, discount_amount,
+          cgst_amount, sgst_amount, service_fee, tip_amount, total_amount,
+          payment_method, settled_by_name, whatsapp_status, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, '996331', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', 'ISSUED', datetime('now'))`,
+        [
+          `inv-${crypto.randomBytes(6).toString("hex")}`,
+          invoiceNumber,
+          order.id,
+          order.customer_name,
+          params.customerPhone || "N/A",
+          cafe.gstin,
+          cafe.fssai_number,
+          order.subtotal,
+          discountAmount,
+          cgstAmount,
+          sgstAmount,
+          serviceFee,
+          tip,
+          finalTotal,
+          params.paymentMethod,
+          params.actor.name
+        ]
+      );
+
+      // 3. Insert audit log
+      db.run(
+        `INSERT INTO audit_logs (
+          id, order_id, action, actor_id, actor_name, actor_role,
+          payment_method, gross_subtotal, discount_amount, tax_amount, final_amount,
+          reason, ip_address, created_at
+        ) VALUES (?, ?, 'SETTLED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [
+          `aud-${crypto.randomBytes(6).toString("hex")}`,
+          order.id,
+          params.actor.id,
+          params.actor.name,
+          params.actor.role,
+          params.paymentMethod,
+          order.subtotal,
+          discountAmount,
+          totalTax,
+          finalTotal,
+          params.discount?.reason || "Normal Settlement",
+          params.ipAddress || "127.0.0.1"
+        ]
+      );
+
+      // 4. Check if other active orders remain on this table session
+      const remainingUnpaid = db.query(
+        "SELECT COUNT(*) as count FROM orders WHERE table_session_id = ? AND payment_status != 'paid' AND id != ?"
+      ).get(order.table_session_id, order.id) as any;
+
+      if (!remainingUnpaid || remainingUnpaid.count === 0) {
+        db.run("UPDATE table_sessions SET status = 'CLOSED', closed_at = datetime('now') WHERE id = ?", [order.table_session_id]);
+        db.run("UPDATE tables SET status = 'vacant', updated_at = datetime('now') WHERE id = ?", [order.table_id]);
+      }
+    });
+
+    settleTx();
+
+    return {
+      orderId: order.id,
+      invoiceNumber,
+      finalTotal,
+      paymentMethod: params.paymentMethod,
+      discountAmount,
+      tableClosed: true,
+    };
+  },
+
+  // 2. Reopen Settled Bill (Owner / Admin Only)
+  reopenBillSecure: (params: {
+    orderId: string;
+    reason: string;
+    actor: { id: string; name: string; role: string };
+    ipAddress?: string;
+  }) => {
+    if (params.actor.role !== "admin" && params.actor.role !== "owner") {
+      throw new Error("Only the Cafe Owner / Administrator can reopen a settled bill");
+    }
+    if (!params.reason || params.reason.trim().length < 15) {
+      throw new Error("Mandatory audit reason of at least 15 characters required to reopen a settled bill");
+    }
+
+    const order = db.query("SELECT * FROM orders WHERE id = ?").get(params.orderId) as any;
+    if (!order) throw new Error("Order not found");
+    if (order.payment_status !== "paid") throw new Error("Only paid orders can be reopened");
+
+    const reopenTx = db.transaction(() => {
+      // 1. Revert order status
+      db.run(
+        `UPDATE orders SET
+          payment_status = 'unpaid',
+          payment_method = NULL,
+          settled_at = NULL,
+          status = 'ready',
+          updated_at = datetime('now')
+         WHERE id = ?`,
+        [order.id]
+      );
+
+      // 2. Mark invoice as VOIDED_REOPENED
+      db.run("UPDATE invoices SET status = 'VOIDED_REOPENED' WHERE order_id = ?", [order.id]);
+
+      // 3. Reopen table session and table
+      db.run("UPDATE table_sessions SET status = 'ACTIVE', closed_at = NULL WHERE id = ?", [order.table_session_id]);
+      db.run("UPDATE tables SET status = 'active_order', updated_at = datetime('now') WHERE id = ?", [order.table_id]);
+
+      // 4. Log to audit logs
+      db.run(
+        `INSERT INTO audit_logs (
+          id, order_id, action, actor_id, actor_name, actor_role,
+          payment_method, gross_subtotal, discount_amount, tax_amount, final_amount,
+          reason, ip_address, created_at
+        ) VALUES (?, ?, 'REOPENED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [
+          `aud-${crypto.randomBytes(6).toString("hex")}`,
+          order.id,
+          params.actor.id,
+          params.actor.name,
+          params.actor.role,
+          order.payment_method,
+          order.subtotal,
+          order.discount_amount || 0,
+          order.total_tax,
+          order.total_amount,
+          params.reason,
+          params.ipAddress || "127.0.0.1"
+        ]
+      );
+    });
+
+    reopenTx();
+
+    return DB.getOrderDetails(order.id);
+  },
+
+  // 3. End of Day Reconciliation
+  getEodReport: (businessDate?: string) => {
+    const bDate = businessDate || new Date().toISOString().slice(0, 10);
+    const orders = db.query(
+      "SELECT * FROM orders WHERE DATE(created_at) = ? AND payment_status = 'paid'"
+    ).all(bDate) as any[];
+
+    let cashSales = 0;
+    let upiSales = 0;
+    let cardSales = 0;
+    let grossSales = 0;
+    let totalDiscounts = 0;
+
+    for (const o of orders) {
+      grossSales += o.total_amount;
+      totalDiscounts += o.discount_amount || 0;
+      if (o.payment_method === "cash") cashSales += o.total_amount;
+      else if (o.payment_method === "upi") upiSales += o.total_amount;
+      else cardSales += o.total_amount;
+    }
+
+    const voids = db.query(
+      "SELECT COUNT(*) as count FROM orders WHERE DATE(created_at) = ? AND is_void = 1"
+    ).get(bDate) as any;
+
+    const openingFloat = 2000.0; // standard opening float
+    const expectedCashInDrawer = Number((openingFloat + cashSales).toFixed(2));
+
+    const existingRec = db.query(
+      "SELECT * FROM eod_reconciliations WHERE business_date = ?"
+    ).get(bDate) as any;
+
+    return {
+      business_date: bDate,
+      opening_float: openingFloat,
+      system_cash_sales: Number(cashSales.toFixed(2)),
+      system_upi_sales: Number(upiSales.toFixed(2)),
+      system_card_sales: Number(cardSales.toFixed(2)),
+      gross_sales: Number(grossSales.toFixed(2)),
+      total_discounts: Number(totalDiscounts.toFixed(2)),
+      total_voids_count: voids ? voids.count : 0,
+      expected_cash_in_drawer: expectedCashInDrawer,
+      reconciliation: existingRec || null,
+    };
+  },
+
+  submitEodReconciliation: (params: {
+    businessDate: string;
+    openingFloat: number;
+    actualCashCounted: number;
+    varianceNotes?: string;
+    actor: { id: string; name: string };
+  }) => {
+    const report = DB.getEodReport(params.businessDate);
+    const expected = Number((params.openingFloat + report.system_cash_sales).toFixed(2));
+    const variance = Number((params.actualCashCounted - expected).toFixed(2));
+    const status = variance === 0 ? "BALANCED" : variance > 0 ? "OVERAGE" : "SHORTAGE";
+
+    const id = `eod-${params.businessDate}`;
+    db.run(
+      `INSERT OR REPLACE INTO eod_reconciliations (
+        id, business_date, opened_at, closed_at, closed_by,
+        opening_float, system_cash_sales, system_upi_sales, system_card_sales,
+        gross_sales, total_discounts, total_voids_count,
+        expected_cash_in_drawer, actual_cash_counted, cash_variance,
+        variance_notes, status
+      ) VALUES (?, ?, datetime('now', '-12 hours'), datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        params.businessDate,
+        params.actor.name,
+        params.openingFloat,
+        report.system_cash_sales,
+        report.system_upi_sales,
+        report.system_card_sales,
+        report.gross_sales,
+        report.total_discounts,
+        report.total_voids_count,
+        expected,
+        params.actualCashCounted,
+        variance,
+        params.varianceNotes || null,
+        status
+      ]
+    );
+
+    return db.query("SELECT * FROM eod_reconciliations WHERE id = ?").get(id) as any;
+  },
+
+  // 4. Audit Logs
+  getAuditLogs: (filters?: { action?: string; actorId?: string; limit?: number }) => {
+    let sql = "SELECT * FROM audit_logs WHERE 1=1";
+    const params: any[] = [];
+    if (filters?.action) {
+      sql += " AND action = ?";
+      params.push(filters.action);
+    }
+    if (filters?.actorId) {
+      sql += " AND actor_id = ?";
+      params.push(filters.actorId);
+    }
+    sql += " ORDER BY created_at DESC LIMIT ?";
+    params.push(filters?.limit || 100);
+    return db.query(sql).all(...params) as any[];
+  },
+
+  createAuditLog: (entry: {
+    orderId?: string;
+    action: string;
+    actorId: string;
+    actorName: string;
+    actorRole: string;
+    paymentMethod?: string;
+    grossSubtotal?: number;
+    discountAmount?: number;
+    taxAmount?: number;
+    finalAmount?: number;
+    reason?: string;
+    metadata?: any;
+    ipAddress?: string;
+  }) => {
+    const id = `aud-${crypto.randomBytes(6).toString("hex")}`;
+    db.run(
+      `INSERT INTO audit_logs (
+        id, order_id, action, actor_id, actor_name, actor_role,
+        payment_method, gross_subtotal, discount_amount, tax_amount, final_amount,
+        reason, metadata, ip_address, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [
+        id,
+        entry.orderId || null,
+        entry.action,
+        entry.actorId,
+        entry.actorName,
+        entry.actorRole,
+        entry.paymentMethod || null,
+        entry.grossSubtotal || null,
+        entry.discountAmount || 0,
+        entry.taxAmount || 0,
+        entry.finalAmount || null,
+        entry.reason || null,
+        entry.metadata ? JSON.stringify(entry.metadata) : null,
+        entry.ipAddress || "127.0.0.1"
+      ]
+    );
+    return id;
+  },
+
+  // 5. Privacy & GDPR Erasure
+  deleteCustomerData: (phoneOrCustomerId: string) => {
+    const customer = db.query("SELECT * FROM customers WHERE phone_e164 = ? OR id = ?").get(phoneOrCustomerId, phoneOrCustomerId) as any;
+    if (!customer) return false;
+
+    db.run("UPDATE orders SET customer_name = 'Anonymized Guest' WHERE customer_id = ?", [customer.id]);
+    db.run("DELETE FROM diners WHERE customer_id = ?", [customer.id]);
+    db.run("DELETE FROM customers WHERE id = ?", [customer.id]);
+    db.run("DELETE FROM otp_verifications WHERE phone = ?", [customer.phone_e164]);
+    return true;
+  },
+
+  // 6. Role-Guarded Order Status Transition (FSM)
+  transitionOrderStatus: (orderId: string, newStatus: string, actorRole: string) => {
+    const order = db.query("SELECT * FROM orders WHERE id = ?").get(orderId) as any;
+    if (!order) throw new Error("Order not found");
+
+    const validTransitions: Record<string, string[]> = {
+      sent: ["preparing", "cancelled"],
+      preparing: ["ready", "cancelled"],
+      ready: ["served", "cancelled"],
+      served: ["completed", "cancelled"],
+      completed: [],
+      cancelled: [],
+    };
+
+    if (!validTransitions[order.status]?.includes(newStatus)) {
+      throw new Error(`Invalid status transition from '${order.status}' to '${newStatus}'`);
+    }
+
+    // Role verification
+    if (newStatus === "preparing" || newStatus === "ready") {
+      if (actorRole !== "kitchen" && actorRole !== "barista" && actorRole !== "manager" && actorRole !== "admin" && actorRole !== "owner") {
+        throw new Error("Only Barista/Kitchen or Managers can update preparation status");
+      }
+    } else if (newStatus === "served") {
+      if (actorRole !== "waitstaff" && actorRole !== "manager" && actorRole !== "admin" && actorRole !== "owner") {
+        throw new Error("Only Waitstaff or Managers can mark orders as served");
+      }
+    } else if (newStatus === "completed") {
+      if (actorRole !== "cashier" && actorRole !== "manager" && actorRole !== "admin" && actorRole !== "owner") {
+        throw new Error("Only Cashier or Managers can complete orders");
+      }
+    }
+
+    // If cancelled, restore stock
+    if (newStatus === "cancelled") {
+      DB.cancelOrder(orderId);
+      return DB.getOrderDetails(orderId);
+    }
+
+    db.run("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?", [newStatus, orderId]);
+    return DB.getOrderDetails(orderId);
+  },
+
+  // 7. Menu Item Management
+  updateMenuItem: (itemId: string, updates: { is_available?: boolean; base_price?: number; stock_count?: number }) => {
+    const item = db.query("SELECT * FROM menu_items WHERE id = ?").get(itemId) as any;
+    if (!item) throw new Error("Menu item not found");
+
+    const newAvail = updates.is_available !== undefined ? (updates.is_available ? 1 : 0) : item.is_available;
+    const newPrice = updates.base_price !== undefined ? updates.base_price : item.base_price;
+    const newStock = updates.stock_count !== undefined ? updates.stock_count : item.stock_count;
+
+    db.run(
+      "UPDATE menu_items SET is_available = ?, base_price = ?, stock_count = ? WHERE id = ?",
+      [newAvail, newPrice, newStock, itemId]
+    );
+    return db.query("SELECT * FROM menu_items WHERE id = ?").get(itemId) as any;
   },
 };

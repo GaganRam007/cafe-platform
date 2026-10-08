@@ -1,147 +1,172 @@
-# Aura Cafe - Full-Stack Cafe Management & QR Dining Platform
+# Aura Cafe - Enterprise Cafe Management & POS Operating System
 
-A full-stack, responsive cafe operating system and mobile guest ordering suite built with **Next.js (App Router)**, **React**, **Tailwind CSS**, **TanStack Query**, and **WebSockets / Server-Sent Events (SSE)**.
+A robust, full-stack cafe management platform, kitchen display system (KDS), and mobile QR dining suite built with **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, **TanStack Query**, **Redis Pub/Sub & Server-Sent Events (SSE)**, and **PostgreSQL / Embedded Database**.
 
----
-
-## Documentation & Technical Specifications
-
-- 📄 **[Revised Technical Specification: Offline Counter Settlement & POS Audit (v2.0)](./docs/REVISED_OFFLINE_PAYMENTS_SPEC.md)**: Production specification for transitioning from online gateways (Razorpay/webhooks) to offline counter settlement (Cash/UPI/Card), staff RBAC, sequential GST invoicing, anti-theft audit logs, and End-of-Day cash reconciliation.
+Designed specifically for modern cafes, artisanal roasteries, and bistros requiring offline cash/UPI/card counter settlement, tamper-proof audit trails, split GST compliance, and seamless guest experiences without mandatory app downloads.
 
 ---
 
-## Architecture Overview
+## 🚀 Key Highlights & Architectural Features
+
+### 1. Zero-Friction Customer Dining (Mobile-First Web App)
+- **Cryptographic QR Routing:** Tamper-proof HMAC-SHA256 signed tokens (`/order/[qr_token]`) preventing table spoofing.
+- **Diner Mobile & Name Login:** Lightweight 6-digit OTP verification issuing 30-day diner session cookies.
+- **Multilingual Support:** One-tap language switcher for English (`EN`), Hindi (`HI`), and Kannada (`KN`).
+- **Interactive Digital Menu:** Dietary tags (Veg, Vegan, Non-Veg, Gluten-Free), real-time stock availability badges, and allergen filtering.
+- **Customization Engine:** Milk selections (Oat, Almond, Whole), sweetness levels, temperature, and extra espresso shots with automatic recipe inventory tracking.
+- **Shared Table Cart & Live Bill:** Real-time shared order view, live prep status tracker (*Queued*, *Preparing*, *Ready*, *Delivered*), and quick server/water call buttons.
+- **Offline Payment Flow:** Direct "Place Order to Kitchen" and "Request Bill / Call Staff for Payment" buttons (no online payment gateway friction or failed webhooks).
+
+### 2. Owner & Staff Web Dashboard (POS & Operations)
+- **Role-Based Access Control (RBAC):** Strict server-side authentication for `owner`, `manager`, `barista`, `waitstaff`, and `cashier` with PIN verification.
+- **Live Floor & Table Management:** 2D interactive floor map across dining zones (Main Dining, Patio Garden, Window Bar) with color-coded table statuses, table merging/splitting, and QR placard generator.
+- **Kitchen Display System (KDS):** Station routing (Barista vs. Kitchen), ticket timers, preparation FSM transitions, and audio chimes.
+- **Menu & Stock Controls:** Real-time item pricing, stock quantity adjustment, and instant 86/availability toggles.
+- **Inventory & BOM Recipe Costing:** Automatic ingredient deductions (including modifier deltas), wastage logging, and low-stock alerts.
+- **Vendor Management & Purchase Orders:** Supplier contact directory, lead time tracking, and automated PO generator.
+- **Offline Counter Bill Settlement:** Settle orders via Cash, UPI, or Card; tender cash change calculator; manager-authorized discounts with audit reasons; optional tips.
+- **Automated GST & WhatsApp Invoicing:** Sequential GST Tax Invoices (SAC 996331, CGST 2.5%, SGST 2.5%, GSTIN, FSSAI) with automated WhatsApp notification delivery.
+- **End-of-Day (EOD) Register Balancing:** Daily register closeout with system vs. counted cash variance calculations and lockouts.
+- **Immutable Audit Trail:** Comprehensive logging of all settlements, voids, bill reopens, and menu modifications.
+
+---
+
+## 📁 Repository Structure
 
 ```
 cafe-platform/
+├── .github/
+│   └── workflows/ci.yml             # GitHub Actions CI pipeline (lint, typecheck, tests)
+├── prisma/
+│   └── schema.prisma                # Database schema (PostgreSQL / SQLite)
+├── public/
+│   └── manifest.json                # PWA manifest configuration
+├── scripts/
+│   ├── backup-db.sh                 # Database backup script (pg_dump + gzip)
+│   ├── seed.ts                      # Database seeding script
+│   ├── test-concurrency.ts          # Concurrency & overselling test suite
+│   └── verify-all.ts                # 25-point end-to-end integration test suite
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx                     # Interactive Portal & Demo Simulator
-│   │   ├── layout.tsx                   # PWA metadata, font & Theme Providers
-│   │   ├── globals.css                  # Cafe aesthetic tokens, animations & print styles
-│   │   ├── order/[tableId]/page.tsx     # Module 1: Customer QR-triggered Web App
-│   │   ├── dashboard/page.tsx           # Module 2: Owner & Staff Web Dashboard
+│   │   ├── page.tsx                 # Portal & Demo Simulator
+│   │   ├── layout.tsx               # Root Layout with Theme & Query Providers
+│   │   ├── order/[qr_token]/page.tsx# Customer Mobile QR Ordering Page
+│   │   ├── dashboard/page.tsx       # Staff & Owner Web Dashboard
+│   │   ├── invoice/[invoiceNumber]/page.tsx # Public GST Tax Invoice Viewer
 │   │   └── api/
-│   │       ├── bootstrap/route.ts       # Full cafe state loader
-│   │       ├── realtime/route.ts        # Server-Sent Events (SSE) live push stream
-│   │       ├── orders/route.ts          # Order creation & list (auto recipe deduction)
-│   │       ├── orders/[orderId]/route.ts# Order & item status pipeline
-│   │       ├── tables/[tableId]/route.ts# Table status, merge, split, reset
-│   │       ├── tables/[tableId]/service/route.ts # Diner waiter & water calls
-│   │       ├── service-requests/[requestId]/route.ts # Staff resolve requests
-│   │       ├── inventory/waste/route.ts # Shrinkage & spoilage logging
-│   │       ├── inventory/po/route.ts    # Reorder trigger purchase order generator
-│   │       └── webhooks/payment/route.ts# Stripe / Razorpay capture webhook
+│   │       ├── auth/                # Staff PIN login & Customer OTP endpoints
+│   │       ├── customer/            # Public menu, session, orders, & GDPR data deletion
+│   │       ├── staff/               # Settle bill, reopen bill, EOD reports, audit logs, menu
+│   │       ├── realtime/route.ts    # Role/session-scoped SSE broadcast stream
+│   │       └── ...
 │   ├── components/
-│   │   ├── customer/
-│   │   │   ├── customer-header.tsx      # Table info, WiFi copy, anonymous diner identity
-│   │   │   ├── menu-item-card.tsx       # Dietary badges, low stock, customization trigger
-│   │   │   ├── item-customizer-sheet.tsx# Milk, sweetness, extra shots, temp modifiers
-│   │   │   ├── cart-bottom-bar.tsx      # Sticky bottom bar & service quick buttons
-│   │   │   └── shared-table-cart-modal.tsx # Split cart, live bill tracker, tips & checkout
-│   │   ├── dashboard/
-│   │   │   ├── dashboard-nav.tsx        # High density header, RBAC switcher, service alert dock
-│   │   │   ├── floor-management.tsx     # 2D visual floor plan & high-density table grid
-│   │   │   ├── kds-view.tsx             # Ticket timeline KDS, urgency alerts, Web Audio chimes
-│   │   │   ├── inventory-management.tsx # Unit catalog, recipe BOM costing, PO generator
-│   │   │   ├── analytics-view.tsx       # Live revenue, AOV, turnover, bestsellers, peak hours
-│   │   │   ├── qr-modal.tsx             # Dynamic QR code & printable table placard
-│   │   │   ├── manual-order-modal.tsx   # Phone/walk-in staff order override
-│   │   │   └── merge-split-modal.tsx    # Table capacity merge & split
-│   │   └── providers/
-│   │       └── query-provider.tsx       # TanStack React Query + SSE auto-invalidator
+│   │   ├── customer/                # Customer header, menu cards, cart modal, item customizer
+│   │   └── dashboard/               # Floor, KDS, Menu, Inventory, Vendors, EOD, Audit, Settlement
 │   ├── lib/
-│   │   ├── data-store.ts                # Thread-safe in-memory store with auto BOM deductions
-│   │   └── utils.ts                     # Classnames, currency formatter, Web Audio chimes
+│   │   ├── auth.ts                  # Staff & Diner JWT session management
+│   │   ├── db.ts                    # Database repository, transactions, and seeding
+│   │   ├── i18n.ts                  # English, Hindi, and Kannada translation dictionaries
+│   │   ├── rate-limit.ts            # Sliding-window rate limiter
+│   │   ├── realtime.ts              # Redis / In-memory PubSub Realtime Bus
+│   │   ├── validations.ts           # Zod schema validation models
+│   │   └── whatsapp-invoicing.ts    # WhatsApp Cloud API & GST invoice dispatcher
 │   └── types/
-│       └── cafe.ts                      # Strict TypeScript domain models
-└── public/
-    └── manifest.json                    # Mobile PWA configuration
+│       └── cafe.ts                  # TypeScript domain models
+├── docker-compose.yml               # Next.js, PostgreSQL 16, and Redis 7 multi-container setup
+├── Dockerfile                       # Multi-stage production container build
+├── .env.example                     # Environment variables configuration template
+└── README.md
 ```
 
 ---
 
-## Core Modules & Features
-
-### 1. Customer-Facing Web App (QR-Triggered)
-- **URL Route:** `/order/[tableId]` (encodes cafe ID and specific table number).
-- **Session:** Anonymous diner session with customizable name, synced with table order.
-- **Dynamic Welcome Screen:** Cafe banner, logo, guest WiFi details (one-tap password copy), and active table badge.
-- **Instant Search & Dietary Filters:** Real-time search by title or description; filter chips for **Vegetarian**, **Vegan**, **Gluten-Free**, and **Non-Veg**.
-- **Interactive Digital Menu:** Sticky category navigation tabs (Espresso & Classics, Artisanal Brews, Bakery & Pastries, Brunch & Mains, Specialty Sips).
-- **Item Customizer (Bottom Sheet):**
-  - Modifiers: Milk selection (Whole, Oatly Barista, Almond, Skim), Sweetness levels (0%, 25%, 50%, 100%), Extra espresso shots, Serving style (Hot / Artisanal Ice).
-  - Special instructions for barista / kitchen.
-  - Live unit price calculator reflecting modifier deltas and quantity.
-- **Shared Table Cart & Live Bill:**
-  - Split view between **Your Items** and **Table's Combined Order** across multiple diners.
-  - Live bill preparation tracker: *Queued*, *Preparing*, *Ready*, *Delivered*.
-  - Flexible tip selector (0%, 5%, 10%, 15%, 20% or custom) with breakdown of subtotal, 5% service charge, and 8% tax.
-- **Checkout & Quick Service Actions:**
-  - Instant digital checkout (Apple Pay, Google Pay, UPI, Credit Card) with celebratory confetti.
-  - "Pay at Counter / Cash" option setting order status to `cash_pending` and table to `billing`.
-  - Persistent quick-actions: **Call Server** and **Request Water** with real-time staff dock notification.
-
----
-
-### 2. Owner & Staff Web Dashboard
-- **Role-Based Access Control (RBAC):** One-click toggle between **Admin / Owner**, **Barista / Kitchen Staff**, and **Waitstaff** with dedicated views and permissions.
-- **Live Floor & Table Management:**
-  - Visual 2D interactive floor plan map across dining zones (Main Dining, Patio Garden, Window Bar) plus high-density grid view.
-  - Color-coded table statuses:
-    - 🟢 Green: Vacant (Clean)
-    - 🟡 Amber: Seated / Ordering
-    - 🔴 Red: In-Kitchen / Active Order
-    - 🔵 Blue: Payment Pending
-  - Quick action buttons on each table:
-    - **Generate & Print Dynamic QR Code:** High-resolution QR code generator with printable placard containing WiFi info and table number.
-    - **Merge / Split Tables:** Combine adjacent table capacities for large dining parties, or split them back.
-    - **Manual Order Override:** Staff POS entry for walk-in takeaway or phone orders.
-    - **Reset Table / Cleaned:** 1-tap table reset to vacant.
-- **Kitchen Display System (KDS):**
-  - Ticket-based view ordered chronologically by elapsed time.
-  - Color-coded urgency alerts:
-    - Normal: `<10m` (Green)
-    - Warning: `10–20m` (Amber)
-    - Critical Alert: `>20m` (Pulsing Red)
-  - One-click status transitions: `Received` → `Preparing` → `Ready` → `Served`.
-  - Station filters: All Stations, Barista (Drinks), Kitchen (Food).
-  - Individual item completion strike-through checklists.
-  - Synthesized Web Audio API sound chime triggers on new orders.
-- **Inventory & Recipe Costing Management:**
-  - Unit-based ingredient tracking (grams, ml, pieces).
-  - **Recipe-to-Menu BOM Mapping:** Automatically deducts exact quantities of raw materials (e.g. 18g espresso beans + 200ml oat milk per Spanish Latte) on order placement.
-  - Low-stock automatic alert badges and reorder triggers.
-  - Spoilage, spill, and shrinkage logging with cost calculations.
-  - Certified vendor directory with lead times and 1-click Purchase Order (PO) requisition generator.
-- **Analytics & Cafe Health:**
-  - Real-time KPIs: Gross Revenue, Average Order Value (AOV), Table Turnover Rate, Dining Occupancy %.
-  - Top 5 Best-Selling items with revenue progress bars.
-  - Payment channel breakdown (Apple Pay, Google Pay, UPI, Cards, Cash).
-  - Peak order hourly volume distribution.
-  - Live daily ingredient consumption rates.
-
----
-
-## Getting Started
+## 🛠️ Quick Start & Local Development
 
 ### Prerequisites
-- [Bun](https://bun.sh/) (installed and configured) or Node.js 18+
+- [Bun](https://bun.sh) (v1.2+) or Node.js (v20+)
+- PostgreSQL (optional for Docker) or embedded SQLite (default zero-config)
+- Redis (optional, in-memory fallback enabled by default)
 
-### Running the Application
-
+### 1. Clone & Install Dependencies
 ```bash
-# 1. Install dependencies
+git clone https://github.com/Gagan-ramb/cafe-platform.git
+cd cafe-platform
 bun install
-
-# 2. Build production assets
-bun run build
-
-# 3. Start the production server
-bun run start -p 3000
 ```
 
+### 2. Configure Environment Variables
+```bash
+cp .env.example .env.local
+```
+
+### 3. Initialize & Seed Database
+```bash
+bun run seed
+```
+
+Default staff accounts created:
+- **Owner / Admin:** PIN `1234`
+- **Floor Manager:** PIN `1111`
+- **Head Barista / Chef:** PIN `2345`
+- **Waitstaff:** PIN `3456`
+- **Billing Cashier:** PIN `4567`
+
+### 4. Start Development Server
+```bash
+bun run dev
+```
 Open [http://localhost:3000](http://localhost:3000) in your browser:
-- **Interactive Landing & Simulator:** `http://localhost:3000/`
-- **Owner & Staff Dashboard:** `http://localhost:3000/dashboard`
-- **Customer QR Mobile App:** `http://localhost:3000/order/2` (or any table ID from 1 to 12)
+- **Interactive Simulator & QR Access:** [http://localhost:3000](http://localhost:3000)
+- **Staff POS & Operations Dashboard:** [http://localhost:3000/dashboard](http://localhost:3000/dashboard)
+
+---
+
+## 🧪 Testing & Verification
+
+Run the full automated integrity test suite:
+```bash
+# Run 25-point End-to-End System Test Suite
+bun run test
+
+# Run Concurrency & Zero-Overselling Simulation
+bun run test:concurrency
+
+# Run Typecheck & Linter
+bun x tsc --noEmit
+bun run lint
+```
+
+---
+
+## 🐳 Docker & Production Deployment
+
+### Run with Docker Compose (App + Postgres 16 + Redis 7)
+```bash
+docker compose up -d --build
+```
+
+### Build Standalone Production Container
+```bash
+docker build -t cafe-platform:latest .
+docker run -p 3000:3000 --env-file .env.example cafe-platform:latest
+```
+
+### Database Backup
+```bash
+./scripts/backup-db.sh
+```
+Creates timestamped `.db.gz` or `.sql.gz` archives in `./backups/` and automatically prunes backups older than 14 days.
+
+---
+
+## 🔒 Security & Compliance
+- **Server Authoritative Pricing:** Client monetary values are discarded; all subtotals, taxes, and service charges are calculated exclusively on the server.
+- **Stock Concurrency Protection:** Atomic database transactions prevent overselling under high concurrency.
+- **Strict Role-Based Access Control:** All staff APIs enforce cookie/bearer token verification and role checks.
+- **CSRF & Security Headers:** Enforced CSP, X-Frame-Options, HSTS, and origin validation on mutating endpoints.
+- **GDPR & Privacy:** Customer data deletion endpoint (`DELETE /api/customer/data`) with phone hashing.
+
+---
+
+## 📄 License
+This project is licensed under the [MIT License](LICENSE).

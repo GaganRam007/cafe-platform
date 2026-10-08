@@ -1,0 +1,80 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cafe-platform-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - DATABASE_URL=postgresql://cafe_admin:cafe_secure_pass@postgres:5432/cafe_db?schema=public
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=aura_cafe_jwt_production_secret_key_2026_change_in_prod
+      - QR_SIGNING_SECRET=aura_qr_super_secure_secret_2026_change_in_prod
+      - CAFE_ID=cafe-aura-01
+      - CAFE_NAME=Aura Artisan Coffee & Bistro
+      - GSTIN=29AABCU9603R1ZM
+      - FSSAI_NUMBER=11223344556677
+      - NEXT_PUBLIC_BASE_URL=http://localhost:3000
+    volumes:
+      - cafe_sqlite_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cafe-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: cafe-platform-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cafe_admin
+      POSTGRES_PASSWORD: cafe_secure_pass
+      POSTGRES_DB: cafe_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cafe_admin -d cafe_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cafe-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: cafe-platform-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cafe-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  cafe_sqlite_data:
+    driver: local
+
+networks:
+  cafe-network:
+    driver: bridge

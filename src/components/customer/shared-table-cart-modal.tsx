@@ -8,9 +8,7 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  CreditCard,
   Banknote,
-  Sparkles,
   Trash2,
   ChefHat,
   Coffee,
@@ -19,6 +17,9 @@ import {
   ShieldCheck,
   Send,
   Loader2,
+  Receipt,
+  Droplets,
+  Bell,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { Order, OrderItem, Table, Cafe } from "@/types/cafe";
@@ -77,17 +78,13 @@ export function SharedTableCartModal({
   onTriggerService,
 }: SharedTableCartModalProps) {
   const [activeTab, setActiveTab] = useState<"cart" | "live_bill">("cart");
-  const [tipPercent, setTipPercent] = useState<number>(10);
-  const [customTip, setCustomTip] = useState<string>("");
   const [includeServiceCharge, setIncludeServiceCharge] = useState<boolean>(true);
-  const [paymentMethod, setPaymentMethod] = useState<"razorpay_upi" | "razorpay_card" | "cash">("razorpay_upi");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [billRequestedMessage, setBillRequestedMessage] = useState<string | null>(null);
   const [orderCompleteData, setOrderCompleteData] = useState<{
     orderNumber: string;
-    invoiceNumber?: string;
     total: number;
-    isCash: boolean;
     customerPhone?: string;
   } | null>(null);
 
@@ -101,14 +98,13 @@ export function SharedTableCartModal({
   const cgstAmount = Number((cartSubtotal * 0.025).toFixed(2));
   const sgstAmount = Number((cartSubtotal * 0.025).toFixed(2));
   const serviceFee = includeServiceCharge ? Number((cartSubtotal * 0.05).toFixed(2)) : 0;
-  const tipAmount = customTip !== "" ? parseFloat(customTip) || 0 : Number(((cartSubtotal * tipPercent) / 100).toFixed(2));
-  const totalBill = Number((cartSubtotal + cgstAmount + sgstAmount + serviceFee + tipAmount).toFixed(2));
+  const totalBill = Number((cartSubtotal + cgstAmount + sgstAmount + serviceFee).toFixed(2));
 
   // Submitted Live Items from tableLiveOrders
   const allSubmittedItems: OrderItem[] = tableLiveOrders.flatMap((o) => o.items || []);
   const liveTotalAmount = tableLiveOrders.reduce((sum, o) => sum + o.total_amount, 0);
 
-  const handleCheckout = async (isCash: boolean = false) => {
+  const handlePlaceOrder = async () => {
     if (cartItems.length === 0) return;
 
     // Check if phone authentication is completed
@@ -118,18 +114,14 @@ export function SharedTableCartModal({
     }
 
     setIsSubmitting(true);
-    setStatusMessage("Placing order with kitchen & bar...");
+    setStatusMessage("Placing order directly with kitchen & bar...");
 
     try {
-      const selectedPay = isCash ? "cash" : "razorpay";
-
-      // 1. Submit Order to Server (Server-Side Price Authority - server recomputes prices, taxes, deducts inventory)
+      // 1. Submit Order to Server (Server-side price authority, inventory deduction, status: unpaid)
       const orderPayload = {
         qr_token: qrToken,
         customer_name: customer.name || guestName,
-        payment_method: selectedPay,
         service_charge_opt_in: includeServiceCharge,
-        tip_amount: tipAmount,
         items: cartItems.map((item) => ({
           menu_item_id: item.menu_item_id,
           quantity: item.quantity,
@@ -153,81 +145,35 @@ export function SharedTableCartModal({
 
       const createdOrder = orderData.order;
 
-      if (isCash) {
-        // Cash order placed directly with payment_status: cash_pending
-        confetti({
-          particleCount: 80,
-          spread: 60,
-          origin: { y: 0.7 },
-          colors: ["#D97706", "#2E1C14", "#10B981", "#F59E0B"],
-        });
+      // Celebrate order submission
+      confetti({
+        particleCount: 80,
+        spread: 60,
+        origin: { y: 0.7 },
+        colors: ["#D97706", "#2E1C14", "#10B981", "#F59E0B"],
+      });
 
-        setOrderCompleteData({
-          orderNumber: createdOrder.order_number,
-          total: createdOrder.total_amount,
-          isCash: true,
-          customerPhone: customer.phone_e164,
-        });
-        onClearCart();
-        onOrderSuccess();
-      } else {
-        // Digital Razorpay Flow
-        setStatusMessage("Initializing secure Razorpay gateway...");
+      setOrderCompleteData({
+        orderNumber: createdOrder.order_number,
+        total: createdOrder.total_amount,
+        customerPhone: customer.phone_e164,
+      });
 
-        const rzpOrderRes = await fetch("/api/payments/razorpay/create-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ order_id: createdOrder.id }),
-        });
-
-        const rzpData = await rzpOrderRes.json();
-        if (!rzpOrderRes.ok) {
-          throw new Error(rzpData.error || "Razorpay order creation failed");
-        }
-
-        setStatusMessage("Confirming payment & generating GST Tax Invoice...");
-
-        // Simulate Razorpay payment completion via webhook trigger
-        const paymentPayload = {
-          order_id: createdOrder.id,
-          payment_id: `pay_${Date.now().toString(36)}`,
-          razorpay_order_id: rzpData.razorpay_order_id,
-        };
-
-        const webhookRes = await fetch("/api/webhooks/payment", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(paymentPayload),
-        });
-
-        const webhookData = await webhookRes.json();
-
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ["#D97706", "#2E1C14", "#10B981", "#F59E0B"],
-        });
-
-        setOrderCompleteData({
-          orderNumber: createdOrder.order_number,
-          invoiceNumber: webhookData.invoice_number,
-          total: createdOrder.total_amount,
-          isCash: false,
-          customerPhone: customer.phone_e164,
-        });
-        onClearCart();
-        onOrderSuccess();
-      }
+      onClearCart();
+      onOrderSuccess();
     } catch (err: any) {
-      console.error("Checkout failed:", err);
-      alert(err.message || "Checkout failed. Please try again.");
+      console.error("Order submission failed:", err);
+      alert(err.message || "Failed to submit order. Please try again.");
     } finally {
       setIsSubmitting(false);
       setStatusMessage(null);
     }
+  };
+
+  const handleRequestBill = () => {
+    onTriggerService("bill");
+    setBillRequestedMessage("Bill requested! A server is bringing your check to Table #" + table.table_number);
+    setTimeout(() => setBillRequestedMessage(null), 6000);
   };
 
   return (
@@ -266,7 +212,7 @@ export function SharedTableCartModal({
                 : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900"
             }`}
           >
-            <span>Current Draft Cart</span>
+            <span>Current Order Draft</span>
             {cartItems.length > 0 && (
               <span className="w-4 h-4 rounded-full bg-amber-600 text-white text-[10px] flex items-center justify-center">
                 {cartItems.length}
@@ -297,46 +243,30 @@ export function SharedTableCartModal({
               <CheckCircle2 className="w-10 h-10" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-neutral-900 dark:text-white">Order Confirmed!</h3>
+              <h3 className="text-xl font-bold text-neutral-900 dark:text-white">Order Sent to Kitchen!</h3>
               <p className="text-xs text-neutral-500 mt-1">
-                Order <strong className="font-mono text-neutral-800 dark:text-neutral-200">{orderCompleteData.orderNumber}</strong> has been transmitted to Kitchen & Bar.
+                Order <strong className="font-mono text-neutral-800 dark:text-neutral-200">#{orderCompleteData.orderNumber}</strong> is now being queued and prepared.
               </p>
             </div>
 
             <div className="p-4 bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 text-xs text-left space-y-2.5">
               <div className="flex justify-between">
                 <span className="text-neutral-500">Payment Status:</span>
-                <span className="font-semibold text-emerald-600 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  {orderCompleteData.isCash ? "Pay at Counter / Cash" : "Paid via Razorpay"}
+                <span className="font-semibold text-amber-600 flex items-center gap-1">
+                  <Banknote className="w-3.5 h-3.5" />
+                  Unpaid (Pay Offline at Counter/Table)
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-500">Total Billed:</span>
+                <span className="text-neutral-500">Estimated Total:</span>
                 <span className="font-bold text-neutral-900 dark:text-white font-mono">
                   {formatCurrency(orderCompleteData.total)}
                 </span>
               </div>
-              {orderCompleteData.customerPhone && (
-                <div className="flex justify-between items-center pt-1 border-t border-neutral-100 dark:border-neutral-700 text-[11px]">
-                  <span className="text-neutral-500">WhatsApp Notification:</span>
-                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                    Dispatched to {orderCompleteData.customerPhone}
-                  </span>
-                </div>
-              )}
+              <div className="pt-2 border-t border-neutral-100 dark:border-neutral-700 text-[11px] text-neutral-400">
+                Staff will collect payment (Cash, UPI, or Card) when you request the bill, and generate your official GST Tax Invoice.
+              </div>
             </div>
-
-            {/* View Official GST Tax Invoice Button */}
-            {orderCompleteData.invoiceNumber && (
-              <Link
-                href={`/invoice/${encodeURIComponent(orderCompleteData.invoiceNumber)}`}
-                className="w-full py-3 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs shadow-md transition flex items-center justify-center gap-2"
-              >
-                <FileText className="w-4 h-4" />
-                <span>View Official GST Tax Invoice ({orderCompleteData.invoiceNumber})</span>
-              </Link>
-            )}
 
             <div className="flex gap-2 pt-2">
               <button
@@ -346,7 +276,7 @@ export function SharedTableCartModal({
                 }}
                 className="flex-1 py-3 bg-[#2E1C14] text-white font-semibold rounded-2xl text-xs hover:bg-black transition"
               >
-                Track Live Status
+                Track Live Status & View Bill
               </button>
               <button
                 onClick={onClose}
@@ -359,200 +289,102 @@ export function SharedTableCartModal({
         ) : (
           <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4 no-scrollbar">
             {activeTab === "cart" ? (
+              /* Current Draft Cart View */
               <>
                 {cartItems.length === 0 ? (
-                  <div className="py-12 text-center text-neutral-400 space-y-2">
-                    <ShoppingBag className="w-10 h-10 mx-auto text-neutral-300 dark:text-neutral-600" />
-                    <p className="text-sm font-medium">Your cart is currently empty</p>
-                    <p className="text-xs">Explore the menu above and add handcrafted coffee & bakes.</p>
+                  <div className="py-12 text-center text-neutral-400">
+                    <ShoppingBag className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                    <p className="text-sm font-semibold">Your order draft is empty</p>
+                    <p className="text-xs text-neutral-500 mt-1">
+                      Explore our handcrafted brews and kitchen specials to add items.
+                    </p>
                   </div>
                 ) : (
                   <>
-                    {/* Customer identity status bar */}
-                    {!customer ? (
-                      <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-800/60 flex items-center justify-between text-xs">
-                        <div>
-                          <p className="font-semibold text-amber-900 dark:text-amber-200">Phone Verification Required</p>
-                          <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                            Required for WhatsApp GST Invoice & live updates
-                          </p>
-                        </div>
-                        <button
-                          onClick={onRequireAuth}
-                          className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs shadow-sm transition"
+                    {/* Draft Items List */}
+                    <div className="space-y-2.5">
+                      {cartItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-3 bg-white dark:bg-neutral-800/80 rounded-2xl border border-neutral-200 dark:border-neutral-700 flex items-start justify-between gap-3 shadow-xs"
                         >
-                          Verify Mobile
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="px-3 py-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800/40 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                          <span>Ordering as: <strong>{customer.name}</strong> ({customer.phone_e164})</span>
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Split View: "Your Items" & "Other Diners at Table" */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-xs font-semibold text-neutral-600 dark:text-neutral-300">
-                        <span className="flex items-center gap-1.5">
-                          <Users className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Table Selections</span>
-                        </span>
-                        <span className="font-mono">{formatCurrency(cartSubtotal)}</span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {cartItems.map((item) => (
-                          <div
-                            key={item.id}
-                            className="bg-white dark:bg-neutral-800/80 p-3 rounded-2xl border border-neutral-200 dark:border-neutral-700 flex items-start justify-between gap-3 shadow-sm"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-xs sm:text-sm text-neutral-900 dark:text-white">
-                                  {item.quantity}x {item.item_name}
-                                </span>
-                                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded">
-                                  {item.station}
-                                </span>
-                              </div>
-
-                              {item.selected_modifiers?.length > 0 && (
-                                <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 line-clamp-1">
-                                  {item.selected_modifiers.map((m) => m.option_name).join(", ")}
-                                </p>
-                              )}
-
-                              {item.notes && (
-                                <p className="text-[10px] text-amber-700 dark:text-amber-300 italic mt-0.5">
-                                  Note: {item.notes}
-                                </p>
-                              )}
-
-                              <div className="text-[10px] text-neutral-400 mt-1">
-                                Added by: <span className="font-medium text-neutral-600 dark:text-neutral-300">{item.guest_name}</span>
-                              </div>
-                            </div>
-
-                            <div className="flex flex-col items-end justify-between self-stretch shrink-0">
-                              <span className="font-bold text-xs sm:text-sm text-neutral-900 dark:text-white font-mono">
-                                {formatCurrency(item.unit_price * item.quantity)}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs text-neutral-900 dark:text-white">
+                                {item.quantity}x {item.item_name}
                               </span>
-                              <button
-                                onClick={() => onRemoveCartItem(item.id)}
-                                className="text-neutral-400 hover:text-red-500 p-1 transition"
-                                title="Remove item"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-700 text-neutral-500 font-mono">
+                                {formatCurrency(item.unit_price)}
+                              </span>
                             </div>
+
+                            {item.selected_modifiers?.length > 0 && (
+                              <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5 font-medium">
+                                + {item.selected_modifiers.map((m) => m.option_name).join(", ")}
+                              </p>
+                            )}
+
+                            {item.notes && (
+                              <p className="text-[10px] text-neutral-400 mt-0.5 italic">
+                                &quot;{item.notes}&quot;
+                              </p>
+                            )}
                           </div>
-                        ))}
-                      </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-xs text-neutral-900 dark:text-white">
+                              {formatCurrency(item.unit_price * item.quantity)}
+                            </span>
+                            <button
+                              onClick={() => onRemoveCartItem(item.id)}
+                              className="p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 text-neutral-400 hover:text-red-500 transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
 
-                    {/* Tip Selector */}
-                    <div className="bg-white dark:bg-neutral-800/80 p-3.5 rounded-2xl border border-neutral-200 dark:border-neutral-700 space-y-2">
-                      <div className="flex items-center justify-between text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-                        <span className="flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                          <span>Tip the Barista & Kitchen Team</span>
+                    {/* Service charge toggle */}
+                    <div className="p-3 bg-white dark:bg-neutral-800/60 rounded-2xl border border-neutral-200 dark:border-neutral-700 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-semibold text-neutral-800 dark:text-neutral-200 block">
+                          5% Service Charge (Discretionary)
                         </span>
-                        <span className="font-bold text-amber-600 font-mono">{formatCurrency(tipAmount)}</span>
+                        <span className="text-[10px] text-neutral-400">
+                          Directly distributed to baristas and waitstaff
+                        </span>
                       </div>
-
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {[0, 5, 10, 15, 20].map((pct) => (
-                          <button
-                            key={pct}
-                            type="button"
-                            onClick={() => {
-                              setTipPercent(pct);
-                              setCustomTip("");
-                            }}
-                            className={`py-1.5 text-xs font-semibold rounded-xl border transition ${
-                              tipPercent === pct && customTip === ""
-                                ? "bg-amber-600 text-white border-amber-600 shadow-sm"
-                                : "bg-neutral-50 dark:bg-neutral-700/50 border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300"
-                            }`}
-                          >
-                            {pct === 0 ? "No Tip" : `${pct}%`}
-                          </button>
-                        ))}
-                      </div>
+                      <input
+                        type="checkbox"
+                        checked={includeServiceCharge}
+                        onChange={(e) => setIncludeServiceCharge(e.target.checked)}
+                        className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      />
                     </div>
 
-                    {/* Financial Bill Breakdown with Indian GST Split */}
-                    <div className="bg-white dark:bg-neutral-800/80 p-3.5 rounded-2xl border border-neutral-200 dark:border-neutral-700 space-y-1.5 text-xs">
+                    {/* Cart Financial Summary */}
+                    <div className="p-3.5 bg-white dark:bg-neutral-800/90 rounded-2xl border border-neutral-200 dark:border-neutral-700 space-y-1.5 text-xs">
                       <div className="flex justify-between text-neutral-600 dark:text-neutral-400">
                         <span>Items Subtotal</span>
                         <span className="font-mono">{formatCurrency(cartSubtotal)}</span>
                       </div>
-                      
                       <div className="flex justify-between text-neutral-600 dark:text-neutral-400">
-                        <span>CGST (2.5%)</span>
-                        <span className="font-mono">{formatCurrency(cgstAmount)}</span>
+                        <span>CGST (2.5%) + SGST (2.5%)</span>
+                        <span className="font-mono">{formatCurrency(cgstAmount + sgstAmount)}</span>
                       </div>
-
-                      <div className="flex justify-between text-neutral-600 dark:text-neutral-400">
-                        <span>SGST (2.5%)</span>
-                        <span className="font-mono">{formatCurrency(sgstAmount)}</span>
-                      </div>
-
-                      {/* Opt-in Service Charge */}
-                      <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400 pt-0.5">
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={includeServiceCharge}
-                            onChange={(e) => setIncludeServiceCharge(e.target.checked)}
-                            className="rounded text-amber-600 focus:ring-amber-500"
-                          />
-                          <span>Staff Service Contribution (5% opt-in)</span>
-                        </label>
-                        <span className="font-mono">{formatCurrency(serviceFee)}</span>
-                      </div>
-
-                      {tipAmount > 0 && (
+                      {includeServiceCharge && (
                         <div className="flex justify-between text-neutral-600 dark:text-neutral-400">
-                          <span>Staff Tip</span>
-                          <span className="font-mono">{formatCurrency(tipAmount)}</span>
+                          <span>Service Charge (5%)</span>
+                          <span className="font-mono">{formatCurrency(serviceFee)}</span>
                         </div>
                       )}
-
                       <div className="pt-2 border-t border-neutral-200 dark:border-neutral-700 flex justify-between font-bold text-sm text-neutral-900 dark:text-white">
-                        <span>Total Payable</span>
-                        <span className="text-amber-700 dark:text-amber-400 font-mono">{formatCurrency(totalBill)}</span>
-                      </div>
-                    </div>
-
-                    {/* Instant Digital Checkout Options */}
-                    <div className="space-y-2 pt-1">
-                      <label className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 block">
-                        Select Payment Method:
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { id: "razorpay_upi", label: "Razorpay UPI", icon: "⚡" },
-                          { id: "razorpay_card", label: "Debit / Card", icon: "💳" },
-                          { id: "cash", label: "Cash / Counter", icon: "💵" },
-                        ].map((m) => (
-                          <button
-                            key={m.id}
-                            type="button"
-                            onClick={() => setPaymentMethod(m.id as any)}
-                            className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
-                              paymentMethod === m.id
-                                ? "bg-amber-600 text-white border-amber-600 shadow"
-                                : "bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300"
-                            }`}
-                          >
-                            <span>{m.icon}</span>
-                            <span>{m.label}</span>
-                          </button>
-                        ))}
+                        <span>Estimated Order Total</span>
+                        <span className="text-amber-700 dark:text-amber-400 font-mono">
+                          {formatCurrency(totalBill)}
+                        </span>
                       </div>
                     </div>
 
@@ -563,21 +395,19 @@ export function SharedTableCartModal({
                       </div>
                     )}
 
-                    {/* Primary Action Buttons */}
-                    <div className="space-y-2 pt-2">
+                    {/* Primary Button: Send Order to Kitchen */}
+                    <div className="space-y-2 pt-1">
                       <button
-                        onClick={() => handleCheckout(paymentMethod === "cash")}
+                        onClick={handlePlaceOrder}
                         disabled={isSubmitting}
                         className="w-full bg-[#2E1C14] hover:bg-black text-[#FAF7F2] font-semibold py-3.5 px-4 rounded-2xl shadow-xl transition flex items-center justify-between disabled:opacity-50"
                       >
                         <span className="text-xs sm:text-sm font-semibold flex items-center gap-2">
-                          <CreditCard className="w-4 h-4 text-amber-400" />
-                          <span>
-                            {paymentMethod === "cash" ? "Place Order & Pay Cash" : "Pay via Razorpay Secure"}
-                          </span>
+                          <Send className="w-4 h-4 text-amber-400" />
+                          <span>Place Order to Kitchen</span>
                         </span>
                         <span className="font-bold text-sm text-amber-300 font-mono">
-                          {isSubmitting ? "Processing..." : formatCurrency(totalBill)}
+                          {isSubmitting ? "Transmitting..." : formatCurrency(totalBill)}
                         </span>
                       </button>
                     </div>
@@ -598,6 +428,13 @@ export function SharedTableCartModal({
                     {table.status.toUpperCase().replace("_", " ")}
                   </span>
                 </div>
+
+                {billRequestedMessage && (
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{billRequestedMessage}</span>
+                  </div>
+                )}
 
                 {allSubmittedItems.length === 0 ? (
                   <div className="py-10 text-center text-neutral-400">
@@ -660,11 +497,11 @@ export function SharedTableCartModal({
                       );
                     })}
 
-                    {/* Paid Invoices List */}
+                    {/* Paid / Settled Invoices List */}
                     {tableLiveOrders.some((o: any) => o.invoice || o.payment_status === "paid") && (
                       <div className="space-y-2 pt-2">
                         <h4 className="text-xs font-semibold text-neutral-600 dark:text-neutral-400">
-                          Digital GST Invoices
+                          Digital GST Tax Invoices
                         </h4>
                         {tableLiveOrders
                           .filter((o: any) => o.invoice)
@@ -680,7 +517,7 @@ export function SharedTableCartModal({
                                   <span className="font-mono font-semibold text-neutral-900 dark:text-white block">
                                     {o.invoice.invoice_number}
                                   </span>
-                                  <span className="text-[10px] text-neutral-400">Order: {o.order_number}</span>
+                                  <span className="text-[10px] text-neutral-400">Order: #{o.order_number}</span>
                                 </div>
                               </div>
                               <span className="text-amber-600 dark:text-amber-400 font-semibold text-[11px] flex items-center gap-1">
@@ -693,10 +530,25 @@ export function SharedTableCartModal({
 
                     {/* Table live total */}
                     <div className="p-3 bg-neutral-100 dark:bg-neutral-800 rounded-xl flex items-center justify-between text-xs font-semibold">
-                      <span>Total Table Billed So Far</span>
+                      <span>Total Billed to Table So Far</span>
                       <span className="text-sm font-bold text-neutral-900 dark:text-white font-mono">
                         {formatCurrency(liveTotalAmount)}
                       </span>
+                    </div>
+
+                    {/* Request Bill Button */}
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handleRequestBill}
+                        className="w-full py-3 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs shadow-md transition flex items-center justify-center gap-2"
+                      >
+                        <Receipt className="w-4 h-4" />
+                        <span>Request Bill / Call Staff for Payment</span>
+                      </button>
+                      <p className="text-[10px] text-neutral-400 text-center mt-1">
+                        Staff will bring the check or EDC machine to your table (Cash, UPI, Card accepted).
+                      </p>
                     </div>
                   </div>
                 )}
@@ -710,7 +562,7 @@ export function SharedTableCartModal({
                 onClick={() => onTriggerService("water")}
                 className="flex-1 py-2.5 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-semibold text-xs border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1.5 transition"
               >
-                <span>💧</span>
+                <Droplets className="w-3.5 h-3.5" />
                 <span>Request Water</span>
               </button>
               <button
@@ -718,7 +570,7 @@ export function SharedTableCartModal({
                 onClick={() => onTriggerService("call_server")}
                 className="flex-1 py-2.5 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-semibold text-xs border border-amber-200 dark:border-amber-800 flex items-center justify-center gap-1.5 transition"
               >
-                <span>🛎️</span>
+                <Bell className="w-3.5 h-3.5" />
                 <span>Call Server</span>
               </button>
             </div>

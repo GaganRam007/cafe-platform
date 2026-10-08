@@ -12,15 +12,21 @@ import {
   Sun,
   Moon,
   ExternalLink,
-  Shield,
-  Droplets,
-  CheckCircle,
   Wifi,
   Sparkles,
   LogOut,
+  UtensilsCrossed,
+  Truck,
+  Calculator,
+  ShieldCheck as ShieldCheckIcon,
+  Droplets,
+  CheckCircle,
+  Shield,
 } from "lucide-react";
 import { Table, Cafe, ServiceRequest } from "@/types/cafe";
 import { useRealtime } from "@/components/providers/query-provider";
+
+export type DashboardTab = "floor" | "kds" | "inventory" | "menu" | "vendors" | "eod" | "audit" | "analytics";
 
 interface DashboardNavProps {
   cafe: Cafe;
@@ -31,8 +37,8 @@ interface DashboardNavProps {
   tables: Table[];
   selectedTableForQr: number;
   onChangeSelectedTableForQr: (tbl: number) => void;
-  currentTab: "floor" | "kds" | "inventory" | "analytics";
-  onChangeTab: (tab: "floor" | "kds" | "inventory" | "analytics") => void;
+  currentTab: DashboardTab;
+  onChangeTab: (tab: DashboardTab) => void;
 }
 
 export function DashboardNav({
@@ -140,6 +146,21 @@ export function DashboardNav({
             </button>
           )}
 
+          {/* Menu Management */}
+          {(role === "admin" || role === "manager") && (
+            <button
+              onClick={() => onChangeTab("menu")}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${
+                currentTab === "menu"
+                  ? "bg-amber-600 text-white shadow"
+                  : "text-neutral-300 hover:text-white"
+              }`}
+            >
+              <UtensilsCrossed className="w-3.5 h-3.5" />
+              <span>Menu</span>
+            </button>
+          )}
+
           {/* Inventory & Costing */}
           {(role === "admin" || role === "manager" || role === "kitchen") && (
             <button
@@ -151,7 +172,52 @@ export function DashboardNav({
               }`}
             >
               <Package className="w-3.5 h-3.5" />
-              <span>Inventory & Recipes</span>
+              <span>Inventory</span>
+            </button>
+          )}
+
+          {/* Vendors */}
+          {(role === "admin" || role === "manager") && (
+            <button
+              onClick={() => onChangeTab("vendors")}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${
+                currentTab === "vendors"
+                  ? "bg-amber-600 text-white shadow"
+                  : "text-neutral-300 hover:text-white"
+              }`}
+            >
+              <Truck className="w-3.5 h-3.5" />
+              <span>Vendors</span>
+            </button>
+          )}
+
+          {/* End of Day Register */}
+          {(role === "admin" || role === "manager" || role === "cashier") && (
+            <button
+              onClick={() => onChangeTab("eod")}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${
+                currentTab === "eod"
+                  ? "bg-amber-600 text-white shadow"
+                  : "text-neutral-300 hover:text-white"
+              }`}
+            >
+              <Calculator className="w-3.5 h-3.5" />
+              <span>EOD Register</span>
+            </button>
+          )}
+
+          {/* Audit Trail */}
+          {(role === "admin" || role === "manager" || role === "owner") && (
+            <button
+              onClick={() => onChangeTab("audit")}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${
+                currentTab === "audit"
+                  ? "bg-amber-600 text-white shadow"
+                  : "text-neutral-300 hover:text-white"
+              }`}
+            >
+              <ShieldCheckIcon className="w-3.5 h-3.5" />
+              <span>Audit Trail</span>
             </button>
           )}
 
@@ -166,7 +232,7 @@ export function DashboardNav({
               }`}
             >
               <TrendingUp className="w-3.5 h-3.5" />
-              <span>Analytics & KPIs</span>
+              <span>Analytics</span>
             </button>
           )}
         </nav>
