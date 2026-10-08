@@ -4,6 +4,12 @@ A full-stack, responsive cafe operating system and mobile guest ordering suite b
 
 ---
 
+## Documentation & Technical Specifications
+
+- 📄 **[Revised Technical Specification: Offline Counter Settlement & POS Audit (v2.0)](./docs/REVISED_OFFLINE_PAYMENTS_SPEC.md)**: Production specification for transitioning from online gateways (Razorpay/webhooks) to offline counter settlement (Cash/UPI/Card), staff RBAC, sequential GST invoicing, anti-theft audit logs, and End-of-Day cash reconciliation.
+
+---
+
 ## Architecture Overview
 
 ```
